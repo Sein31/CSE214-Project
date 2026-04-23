@@ -1,0 +1,9 @@
+langchain==0.3.14
+langchain-google-genai==2.0.8
+langgraph==0.2.62
+fastapi==0.115.6
+uvicorn==0.32.1
+sqlalchemy==2.0.36
+pymysql==1.1.1
+python-dotenv==1.0.1
+pandas==2.2.3

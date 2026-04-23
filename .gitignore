@@ -1,0 +1,40 @@
+# Maven (Backend)
+aad/target/
+aad/pom.xml.tag
+aad/pom.xml.releaseBackup
+aad/pom.xml.versionsBackup
+aad/pom.xml.next
+aad/release.properties
+aad/dependency-reduced-pom.xml
+aad/buildNumber.properties
+aad/.mvn/timing.properties
+aad/.mvn/wrapper/maven-wrapper.jar
+
+# Angular (Frontend)
+frontend-aad/node_modules/
+frontend-aad/dist/
+frontend-aad/tmp/
+frontend-aad/out-tsc/
+frontend-aad/bazel-out/
+frontend-aad/.angular/
+
+# Python (Chatbot)
+chatbot/__pycache__/
+chatbot/*.py[cod]
+chatbot/*$py.class
+chatbot/venv/
+chatbot/.venv/
+chatbot/env/
+chatbot/.env
+
+# IDEs and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Other
+*.pdf
+pdf_text.txt
