@@ -81,4 +81,4 @@ Once the Spring Boot backend is running, the OpenAPI/Swagger documentation can b
 - **OpenAPI JSON:** `http://localhost:8081/v3/api-docs`
 
 ## 👥 Contributors
-- **Umut** - Full Stack & AI Developer
+- **Hüseyin Umut Yıldırım** - 
