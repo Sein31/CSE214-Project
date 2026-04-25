@@ -70,7 +70,7 @@ def chat(request: ChatRequest, req: Request):
         answer=result["answer"],
         # AV-07: SQL sorgusunu frontend'e gondermiyoruz
         sql_query=None,
-        visualization=result.get("visualization"),
+        visualization=result.get("visualization_code"),
         error=result.get("error"),
     )
 

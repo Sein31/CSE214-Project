@@ -4,12 +4,14 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { SidebarComponent, NavItem } from '../../shared/components/sidebar/sidebar.component';
 import { AuthService } from '../../core/services/auth.service';
+import { KeyValuePipe } from '@angular/common';
+import { DynamicChartComponent } from './dynamic-chart.component';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  visualization?: {chart_type:string; x_column:string; y_column:string; title:string};
+  visualization?: {chart_type:string; x_column:string; y_column:string; title:string; raw_data?:any[]};
   chartId?: string;
 }
 
@@ -25,7 +27,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [NgIf, NgFor, DatePipe, UpperCasePipe, FormsModule, SidebarComponent],
+  imports: [NgIf, NgFor, DatePipe, UpperCasePipe, KeyValuePipe, FormsModule, SidebarComponent, DynamicChartComponent],
   template: `
     <div class="layout">
       <app-sidebar [items]="navItems" />
@@ -87,37 +89,20 @@ const SUGGESTIONS = [
                     <span class="chart-title">{{msg.visualization.title}}</span>
                   </div>
                   <div [id]="'chart-'+msg.chartId" class="chart-placeholder">
-                    <div class="chart-visual">
-                      <div class="chart-bars" *ngIf="msg.visualization.chart_type==='bar'||msg.visualization.chart_type==='column'">
-                        <div *ngFor="let b of getMockBars()" class="chart-bar"
-                             [style.height]="b.h+'%'" [style.background]="b.color">
-                          <span class="bar-val">{{b.val}}</span>
-                        </div>
-                      </div>
-                      <div class="chart-pie" *ngIf="msg.visualization.chart_type==='pie'">
-                        <div class="pie-visual">🥧</div>
-                        <div class="pie-legend">
-                          <div *ngFor="let p of getMockPie()" class="pie-item">
-                            <div class="pie-dot" [style.background]="p.color"></div>
-                            <span>{{p.label}}: {{p.pct}}%</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="chart-line" *ngIf="msg.visualization.chart_type==='line'">
-                        <svg viewBox="0 0 300 100" class="line-svg">
-                          <polyline points="0,80 50,60 100,70 150,30 200,45 250,20 300,35"
-                                    fill="none" stroke="#00d4aa" stroke-width="2.5"/>
-                          <polyline points="0,80 50,60 100,70 150,30 200,45 250,20 300,35"
-                                    fill="url(#grad)" stroke="none" opacity=".15"/>
-                          <defs><linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#00d4aa"/>
-                            <stop offset="100%" stop-color="transparent"/>
-                          </linearGradient></defs>
-                        </svg>
-                      </div>
-                      <div *ngIf="msg.visualization.chart_type==='table'" class="chart-table-msg">
-                        📊 Tablo verisi — sorgu sonuçlarına bakın
-                      </div>
+                    <div class="chart-visual" *ngIf="['bar','column','line','pie','doughnut'].includes(msg.visualization.chart_type)">
+                      <app-dynamic-chart [vizData]="msg.visualization"></app-dynamic-chart>
+                    </div>
+                    <div *ngIf="msg.visualization.chart_type==='table'" class="chart-table-msg" style="overflow-x:auto; padding:10px;">
+                      <table class="data-table" *ngIf="msg.visualization.raw_data" style="width:100%; border-collapse:collapse; font-size:12px;">
+                        <thead>
+                          <tr><th *ngFor="let kv of msg.visualization.raw_data[0] | keyvalue" style="padding:8px; border:1px solid var(--border); background:rgba(0,212,170,.1); color:var(--accent); text-align:left;">{{kv.key}}</th></tr>
+                        </thead>
+                        <tbody>
+                          <tr *ngFor="let row of msg.visualization.raw_data">
+                            <td *ngFor="let kv of row | keyvalue" style="padding:8px; border:1px solid var(--border);">{{kv.value}}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                     <div class="chart-axes">
                       <span class="axis-x">{{msg.visualization.x_column}}</span>
@@ -328,7 +313,7 @@ export class ChatComponent implements OnInit, AfterViewChecked {
           role:'assistant',
           content: res.answer||'Yanıt alınamadı.',
           timestamp: new Date(),
-          visualization: res.visualization_code?.chart_type!=='none' ? res.visualization_code : null,
+          visualization: res.visualization?.chart_type!=='none' ? res.visualization : null,
           chartId,
         }]);
         this.loading.set(false);

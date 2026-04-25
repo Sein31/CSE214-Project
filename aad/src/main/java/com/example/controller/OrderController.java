@@ -90,6 +90,20 @@ public class OrderController {
         }
     }
 
+    @PostMapping("/{id}/return")
+    public ResponseEntity<?> returnOrder(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        try {
+            Order order = orderService.getById(id);
+            if (!order.getUser().getId().equals(user.getId())) {
+                return ResponseEntity.status(403).body(Map.of("error", "Bu siparişi iade etme yetkiniz yok"));
+            }
+            orderService.processReturn(id);
+            return ResponseEntity.ok(Map.of("message", "İade başarıyla işlendi ve stoklara geri eklendi."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @GetMapping("/store/{storeId}/analytics/daily")
     @PreAuthorize("hasAnyRole('CORPORATE','ADMIN')")
     public ResponseEntity<?> dailyRevenue(@PathVariable Long storeId,

@@ -408,13 +408,13 @@ export class ShopComponent implements OnInit {
     this.showToast('🎉 Siparişiniz oluşturuldu!');
   }
 
-  showToast(msg:string) { this.toastMsg=msg; setTimeout(()=>this.toastMsg='',2500); }
-
   getImage(p:any):string {
     const cat=p.categoryName||'default';
     const imgs=CATEGORY_IMAGES[cat]||CATEGORY_IMAGES['default'];
     return imgs[p.id%imgs.length];
   }
+
+  showToast(msg:string) { this.toastMsg=msg; setTimeout(()=>this.toastMsg='',2500); }
 
   onImgError(e:Event) { (e.target as HTMLImageElement).src='https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=400&q=80'; }
   getCatEmoji(c:string):string { return CAT_EMOJI[c]||'📦'; }

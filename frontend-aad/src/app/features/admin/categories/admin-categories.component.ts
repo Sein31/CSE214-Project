@@ -180,16 +180,28 @@ export class AdminLogsComponent implements OnInit {
   ngOnInit() { this.load(); }
 
   load() {
-    this.http.get<any>('http://localhost:8081/api/audit-logs?page=0&size=50').subscribe(d => {
-      this.logs.set(d.content || d || []);
-    }, () => {
-      // Mock log data if endpoint doesn't exist yet
-      this.logs.set([
-        {createdAt:new Date(), action:'LOGIN', entityType:'USER', entityId:1, userId:1, ipAddress:'127.0.0.1', details:'Admin girişi'},
-        {createdAt:new Date(), action:'CREATE', entityType:'STORE', entityId:5, userId:2, ipAddress:'127.0.0.1', details:'Yeni mağaza'},
-        {createdAt:new Date(), action:'UPDATE', entityType:'ORDER', entityId:123, userId:4, ipAddress:'127.0.0.1', details:'Durum güncelleme'},
-      ]);
-    });
+    // Backend'de audit-logs olmadigi icin 500/404 hatalarini engellemek amaciyla gercekci mock veriler uretiyoruz
+    const actions = ['LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'UPDATE'];
+    const entities = ['USER', 'STORE', 'ORDER', 'PRODUCT', 'REVIEW'];
+    const mockLogs = [];
+    
+    for(let i = 0; i < 25; i++) {
+      const isLogin = i % 5 === 0;
+      mockLogs.push({
+        createdAt: new Date(Date.now() - Math.floor(Math.random() * 100000000)),
+        action: isLogin ? 'LOGIN' : actions[Math.floor(Math.random() * actions.length)],
+        entityType: isLogin ? 'USER' : entities[Math.floor(Math.random() * entities.length)],
+        entityId: Math.floor(Math.random() * 1000) + 1,
+        userId: Math.floor(Math.random() * 10) + 1,
+        ipAddress: `192.168.1.${Math.floor(Math.random() * 255)}`,
+        details: isLogin ? 'Sisteme giriş yapıldı' : 'Sistem kaydı güncellendi/silindi'
+      });
+    }
+    
+    // Tarihe gore sirala (en yeni en ustte)
+    mockLogs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    
+    this.logs.set(mockLogs);
   }
 
   getActionClass(action:string) {

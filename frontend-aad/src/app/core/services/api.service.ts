@@ -67,6 +67,10 @@ export class ApiService {
     return this.http.patch(`${BASE}/orders/${id}/status`, { status });
   }
 
+  returnOrder(orderId: number): Observable<any> {
+    return this.http.post(`${BASE}/orders/${orderId}/return`, {});
+  }
+
   // ── Stores ────────────────────────────────────────────────────────────────
   myStore(): Observable<any> {
     return this.http.get(`${BASE}/stores/my`);

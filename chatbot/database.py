@@ -43,12 +43,21 @@ def validate_sql(sql: str) -> None:
 
 
 def inject_condition(sql: str, condition: str) -> str:
+    """Mevcut WHERE varsa AND ile ekle, yoksa WHERE olarak ekle."""
     pattern = re.compile(r'\bWHERE\b', re.IGNORECASE)
-    return pattern.sub(f"WHERE {condition} AND", sql, count=1)
+    if pattern.search(sql):
+        return pattern.sub(f"WHERE {condition} AND", sql, count=1)
+    else:
+        # LIMIT veya GROUP BY veya ORDER BY öncesine ekle
+        for keyword in [' GROUP BY', ' ORDER BY', ' HAVING', ' LIMIT']:
+            idx = sql.upper().find(keyword)
+            if idx != -1:
+                return sql[:idx] + f" WHERE {condition}" + sql[idx:]
+        return sql + f" WHERE {condition}"
 
 
 def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
-    """AV-02, AV-05: Backend seviyesinde zorunlu RBAC."""
+    """AV-02, AV-05: Backend seviyesinde zorunlu RBAC — tüm JOIN senaryolarını kapsar."""
     if role == "ADMIN":
         return sql
 
@@ -56,19 +65,31 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
 
     if role == "CORPORATE":
         enforced_store = store_id if store_id else -1
-        if any(t in sql_check for t in ["ORDERS", "PRODUCTS", "SHIPMENTS", "REVIEWS", "ORDER_ITEMS"]):
-            if "WHERE" in sql_check:
-                sql = inject_condition(sql, f"store_id = {enforced_store}")
+        ORDER_TABLES = {"ORDERS", "PRODUCTS", "SHIPMENTS", "REVIEWS", "ORDER_ITEMS"}
+        has_order_table = any(t in sql_check for t in ORDER_TABLES)
+        has_stores_table = "STORES" in sql_check
+
+        if has_order_table and has_stores_table:
+            # JOIN senaryosu: orders varsa zaten store_id ile kısıtlanıyor.
+            sql = inject_condition(sql, f"store_id = {enforced_store}")
+        elif has_order_table:
+            # SHIPMENTS gibi tablolar JOIN içeriyorsa orders.store_id kullan
+            if "SHIPMENTS" in sql_check or "ORDER_ITEMS" in sql_check:
+                sql = inject_condition(sql, f"orders.store_id = {enforced_store}")
             else:
-                sql = sql + f" WHERE store_id = {enforced_store}"
+                sql = inject_condition(sql, f"store_id = {enforced_store}")
+        elif has_stores_table:
+            # Sadece stores tablosu — yalnızca kendi mağazasını görsün
+            sql = inject_condition(sql, f"(owner_id = {user_id} OR id = {enforced_store})")
 
     if role == "INDIVIDUAL":
         enforced_user = user_id if user_id else -1
-        if any(t in sql_check for t in ["ORDERS", "ORDER_ITEMS"]):
-            if "WHERE" in sql_check:
-                sql = inject_condition(sql, f"user_id = {enforced_user}")
+        if any(t in sql_check for t in ["ORDERS", "ORDER_ITEMS", "REVIEWS", "SHIPMENTS"]):
+            # JOIN sorgularında tablo adıyla nitelendir (ambiguity önler)
+            if "ORDERS" in sql_check and any(t in sql_check for t in ["SHIPMENTS", "ORDER_ITEMS", "PRODUCTS"]):
+                sql = inject_condition(sql, f"orders.user_id = {enforced_user}")
             else:
-                sql = sql + f" WHERE user_id = {enforced_user}"
+                sql = inject_condition(sql, f"user_id = {enforced_user}")
 
     return sql
 

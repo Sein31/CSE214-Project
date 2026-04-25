@@ -92,6 +92,25 @@ public class OrderService {
         return orderRepo.save(order);
     }
 
+    @Transactional
+    public Order processReturn(Long orderId) {
+        Order order = getById(orderId);
+        if (order.getStatus() == Order.OrderStatus.RETURNED) {
+            throw new RuntimeException("Sipariş zaten iade edilmiş");
+        }
+        order.setStatus(Order.OrderStatus.RETURNED);
+        
+        // Stokları geri ekle
+        if (order.getOrderItems() != null) {
+            for (OrderItem item : order.getOrderItems()) {
+                Product product = item.getProduct();
+                product.setStockQuantity(product.getStockQuantity() + item.getQuantity());
+                productRepo.save(product);
+            }
+        }
+        return orderRepo.save(order);
+    }
+
     @Transactional(readOnly = true)
     public List<Map<String, Object>> dailyRevenue(Long storeId, int days) {
         return orderRepo.getDailySalesByStore(storeId, days);

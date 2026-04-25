@@ -85,7 +85,7 @@ const STATUS_MAP: Record<string,{label:string,color:string,icon:string}> = {
                 <div class="irow"><span>Yöntem:</span><span>{{o.paymentMethod}}</span></div>
                 <div class="irow"><span>Tutar:</span><span style="color:#4ade80;font-weight:700">{{o.grandTotal|number:'1.2-2'}} ₺</span></div>
                 <div *ngIf="o.status==='DELIVERED'" style="margin-top:12px;display:flex;gap:8px">
-                  <button class="btn-ret">↩️ İade Talebi</button>
+                  <button class="btn-ret" (click)="returnOrder(o)">↩️ İade Talebi</button>
                   <button class="btn-rev" (click)="openReview(o)">⭐ Değerlendir</button>
                 </div>
               </div>
@@ -209,6 +209,16 @@ export class MyOrdersComponent implements OnInit {
 
   openReview(o:any) { this.reviewOrder=o; this.reviewRating=5; this.reviewTitle=''; this.reviewBody=''; }
   
+  returnOrder(o:any) {
+    this.api.returnOrder(o.id).subscribe({
+      next: () => {
+        // alert(res.message); sildik
+        this.api.myOrders(0,50).subscribe((d:any)=>this.orders.set(d.content||[]));
+      },
+      error: (err) => console.error('İade hatası:', err)
+    });
+  }
+
   submitReview() { 
     if (!this.reviewOrder) return;
     const payload = {

@@ -99,7 +99,8 @@ class AgentState(TypedDict):
     query_result:       Optional[str]
     error:              Optional[str]
     final_answer:       Optional[str]
-    visualization_code: Optional[dict]   # PDF 5.5'te visualization_code
+    visualization_code: Optional[dict]
+    raw_data:           Optional[list]
     iteration_count:    int
 
 
@@ -136,6 +137,54 @@ def guardrails_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 2: Guardrails Check"""
     if detect_injection(state["question"]):
         return {**state, "is_in_scope": "out_of_scope"}
+
+    # AV-05: CORPORATE rolü başka mağazalara erişmeye çalışıyor mu? (Cross-Corporate)
+    if state["role"] == "CORPORATE":
+        q_lower = state["question"].lower()
+        cross_store_patterns = [
+            "diğer mağaza", "diger magaza", "diğer store", "diger store",
+            "başka mağaza", "baska magaza", "başka store", "baska store",
+            "tüm mağazalar", "tum magazalar", "bütün mağazalar", "butun magazalar",
+            "all stores", "other stores", "other store",
+            "tüm store", "tum store", "bütün store", "butun store",
+            "diğer satıcı", "diger satici", "başka satıcı", "baska satici",
+            "rakip mağaza", "rakip magaza", "rakip store",
+            "diğer", "diger",
+            "başkasının mağazası", "baskasinin magazasi",
+            "other", "others",
+        ]
+        # AV-02: Direkt store_id/store number ile başka mağazayı hedefleme tespiti
+        import re as _re
+        store_id_ref = _re.search(
+            r'store[\s_]*(id|number|no|num)?[\s:=#]*\d+'
+            r'|magaza[\s_]*(id|numara|no)?[\s:=#]*\d+'
+            r'|store\s+\d+'
+            r'|ma\u011faza\s+\d+'
+            r'|user[\s_]*(id|no)?[\s:=#]*\d+'        # "user ID 4"
+            r'|kullan\u0131c\u0131[\s_]*(id|no)?[\s:=#]*\d+',  # "kullanici id 4"
+            q_lower
+        )
+        if store_id_ref:
+            mentioned_ids = [int(x) for x in _re.findall(r'\d+', store_id_ref.group())]
+            if any(mid != state.get("store_id") for mid in mentioned_ids):
+                return {**state, "is_in_scope": "corporate_scope_violation"}
+        if any(p in q_lower for p in cross_store_patterns):
+            return {**state, "is_in_scope": "corporate_scope_violation"}
+
+    # AV-05: INDIVIDUAL rolü başka kullanıcıların verilerine erişmeye çalışıyor mu?
+    if state["role"] == "INDIVIDUAL":
+        q_lower = state["question"].lower()
+        cross_user_patterns = [
+            "diğer kullanıcı", "diger kullanici", "başka kullanıcı", "baska kullanici",
+            "tüm kullanıcılar", "tum kullanicilar", "bütün kullanıcılar",
+            "diğer müşteri", "diger musteri", "başka müşteri",
+            "other user", "other users", "all users",
+            "başkasının", "baskasinin", "başkalarının",
+            "diğer kişi", "baska kisi", "başka kişi",
+            "user id", "kullanıcı id", "müşteri id",
+        ]
+        if any(p in q_lower for p in cross_user_patterns):
+            return {**state, "is_in_scope": "individual_scope_violation"}
 
     # Önce basit greeting kontrolü yap — LLM'e gerek yok
     greetings = ["merhaba", "selam", "hello", "hi", "hey", "nasılsın",
@@ -174,10 +223,28 @@ def out_of_scope_node(state: AgentState) -> AgentState:
     )}
 
 
+def corporate_scope_violation_node(state: AgentState) -> AgentState:
+    """AV-02/05: Corporate kullanıcı başka mağazalara erişmeye çalışıyor."""
+    return {**state, "final_answer": (
+        "Erisim Reddedildi.\n\n"
+        "Yalnizca kendi magazaniza ait verileri sorgulayabilirsiniz. "
+        "Baska magazalarin satis veya siparis bilgilerine erisim yetkiniz bulunmamaktadir."
+    )}
+
+
+def individual_scope_violation_node(state: AgentState) -> AgentState:
+    """AV-05: Individual kullanıcı başka kullanıcıların verilerine erişmeye çalışıyor."""
+    return {**state, "final_answer": (
+        "Erisim Reddedildi.\n\n"
+        "Yalnizca kendi hesabiniza ait siparis ve profil bilgilerinizi sorgulayabilirsiniz. "
+        "Diger kullanicilarin verilerine erisim kesinlikle yasaklidir."
+    )}
+
+
 def sql_generation_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 3: SQL Agent converts natural language into valid SQL query"""
     config = AGENT_CONFIGS["sql_agent"]
-    prompt = f"User role: {state['role']}\nQuestion: {state['question']}"
+    prompt = f"User role: {state['role']}, User ID: {state['user_id']}, Store ID: {state.get('store_id')}\nQuestion: {state['question']}\nIMPORTANT: If role is CORPORATE, you MUST filter WHERE store_id={state.get('store_id')} or stores.id={state.get('store_id')}. If role is INDIVIDUAL, you MUST filter WHERE user_id={state['user_id']}."
     sql = call_llm(config["system_prompt"], prompt)
     sql = sql.replace("```sql", "").replace("```", "").strip()
     return {**state, "sql_query": sql, "error": None}
@@ -193,7 +260,16 @@ def execute_sql_node(state: AgentState) -> AgentState:
             state.get("store_id")
         )
         result = "No results found." if df.empty else df.to_string(index=False, max_rows=25)
-        return {**state, "query_result": result, "error": None}
+        
+        # Convert date/datetime objects to string for JSON serialization
+        raw_list = []
+        if not df.empty:
+            df = df.fillna("") # Replace NaNs with empty string
+            for col in df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+                df[col] = df[col].astype(str)
+            raw_list = df.to_dict(orient="records")
+            
+        return {**state, "query_result": result, "raw_data": raw_list, "error": None}
     except Exception as e:
         return {**state, "error": str(e), "iteration_count": state["iteration_count"] + 1}
 
@@ -201,7 +277,7 @@ def execute_sql_node(state: AgentState) -> AgentState:
 def error_recovery_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 5: Error Agent diagnoses and attempts to fix"""
     config = AGENT_CONFIGS["error_agent"]
-    prompt = f"Broken SQL:\n{state['sql_query']}\n\nError:\n{state['error']}\n\nFixed SQL:"
+    prompt = f"User role: {state['role']}, User ID: {state['user_id']}, Store ID: {state.get('store_id')}\nBroken SQL:\n{state['sql_query']}\n\nError:\n{state['error']}\n\nFixed SQL (MUST include role-based WHERE filters):"
     fixed = call_llm(config["system_prompt"], prompt)
     fixed = fixed.replace("```sql", "").replace("```", "").strip()
     return {**state, "sql_query": fixed, "error": None}
@@ -222,7 +298,10 @@ def viz_node_fn(state: AgentState) -> AgentState:
     prompt = f"Question: {state['question']}\nData:\n{state['query_result']}"
     response = call_llm(config["system_prompt"], prompt)
     try:
-        viz = json.loads(response)
+        clean_json = response.replace("```json", "").replace("```", "").strip()
+        viz = json.loads(clean_json)
+        if viz.get("chart_type") != "none" and state.get("raw_data"):
+            viz["raw_data"] = state["raw_data"]
     except Exception:
         viz = {"chart_type": "none"}
     return {**state, "visualization_code": viz}
@@ -232,8 +311,10 @@ def viz_node_fn(state: AgentState) -> AgentState:
 
 def route_after_guardrails(state: AgentState) -> str:
     cat = state.get("is_in_scope", "in_scope")
-    if cat == "greeting":     return "greeting"
-    if cat == "out_of_scope": return "out_of_scope"
+    if cat == "greeting":                   return "greeting"
+    if cat == "out_of_scope":               return "out_of_scope"
+    if cat == "corporate_scope_violation":  return "corporate_scope_violation"
+    if cat == "individual_scope_violation": return "individual_scope_violation"
     return "sql_generation"
 
 
@@ -248,24 +329,30 @@ def route_after_execution(state: AgentState) -> str:
 def build_graph():
     graph = StateGraph(AgentState)
 
-    graph.add_node("guardrails",     guardrails_node)
-    graph.add_node("greeting",       greeting_node)
-    graph.add_node("out_of_scope",   out_of_scope_node)
-    graph.add_node("sql_generation", sql_generation_node)
-    graph.add_node("execute_sql",    execute_sql_node)
-    graph.add_node("error_recovery", error_recovery_node)
-    graph.add_node("analysis",       analysis_node)
-    graph.add_node("viz_node",       viz_node_fn)
+    graph.add_node("guardrails",                  guardrails_node)
+    graph.add_node("greeting",                    greeting_node)
+    graph.add_node("out_of_scope",                out_of_scope_node)
+    graph.add_node("corporate_scope_violation",   corporate_scope_violation_node)
+    graph.add_node("individual_scope_violation",  individual_scope_violation_node)
+    graph.add_node("sql_generation",              sql_generation_node)
+    graph.add_node("execute_sql",                 execute_sql_node)
+    graph.add_node("error_recovery",              error_recovery_node)
+    graph.add_node("analysis",                    analysis_node)
+    graph.add_node("viz_node",                    viz_node_fn)
 
     graph.set_entry_point("guardrails")
 
     graph.add_conditional_edges("guardrails", route_after_guardrails, {
-        "greeting":       "greeting",
-        "out_of_scope":   "out_of_scope",
-        "sql_generation": "sql_generation",
+        "greeting":                   "greeting",
+        "out_of_scope":               "out_of_scope",
+        "corporate_scope_violation":  "corporate_scope_violation",
+        "individual_scope_violation": "individual_scope_violation",
+        "sql_generation":             "sql_generation",
     })
-    graph.add_edge("greeting",       END)
-    graph.add_edge("out_of_scope",   END)
+    graph.add_edge("greeting",                   END)
+    graph.add_edge("out_of_scope",               END)
+    graph.add_edge("corporate_scope_violation",  END)
+    graph.add_edge("individual_scope_violation", END)
     graph.add_edge("sql_generation", "execute_sql")
     graph.add_conditional_edges("execute_sql", route_after_execution, {
         "error_recovery": "error_recovery",
@@ -295,6 +382,7 @@ def run_chatbot(question: str, role: str = "ADMIN",
         "error":              None,
         "final_answer":       None,
         "visualization_code": None,
+        "raw_data":           None,
         "iteration_count":    0,
     }
     result = app_graph.invoke(initial_state)
