@@ -317,11 +317,8 @@ export class ChatComponent implements OnInit, AfterViewChecked {
     this.input=''; this.loading.set(true);
     this.runPipeline();
 
-    this.http.post<any>('http://localhost:8000/chat', {
-      question: text,
-      role: this.auth.getRole(),
-      userId: this.auth.currentUser()?.userId,
-      storeId: null,
+    this.http.post<any>('http://localhost:8081/api/chat', {
+      question: text
     }).subscribe({
       next: (res) => {
         clearInterval(this.pipeTimer);

@@ -1,5 +1,5 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { NgIf, NgFor, DecimalPipe, DatePipe } from '@angular/common';
+import { NgIf, NgFor, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { ApiService } from '../../../core/services/api.service';
@@ -18,7 +18,7 @@ const ADMIN_NAV: NavItem[] = [
 @Component({
   selector: 'app-admin-users',
   standalone: true,
-  imports: [NgIf, NgFor, DecimalPipe, DatePipe, FormsModule, SidebarComponent],
+  imports: [NgIf, NgFor, DatePipe, FormsModule, SidebarComponent],
   template: `
     <div class="layout">
       <app-sidebar [items]="navItems" />

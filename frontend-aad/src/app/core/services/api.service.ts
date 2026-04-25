@@ -120,4 +120,26 @@ export class ApiService {
   salesByCategory(storeId: number): Observable<any> {
     return this.http.get(`${BASE}/orders/store/${storeId}/analytics/categories`);
   }
+
+  // ── Reviews ───────────────────────────────────────────────────────────────
+  submitReview(body: any): Observable<any> {
+    return this.http.post(`${BASE}/reviews`, body);
+  }
+
+  getAllReviews(): Observable<any> {
+    return this.http.get(`${BASE}/reviews`);
+  }
+
+  // ── Shipments ─────────────────────────────────────────────────────────────
+  getShipment(orderId: number): Observable<any> {
+    return this.http.get(`${BASE}/shipments/order/${orderId}`);
+  }
+
+  createShipment(orderId: number, body: any): Observable<any> {
+    return this.http.post(`${BASE}/shipments/order/${orderId}`, body);
+  }
+
+  updateShipmentStatus(id: number, status: string): Observable<any> {
+    return this.http.patch(`${BASE}/shipments/${id}/status`, { status });
+  }
 }

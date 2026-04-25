@@ -23,16 +23,24 @@ public class OrderService {
     private final StoreRepository   storeRepo;
     private final ProductRepository productRepo;
 
+    @Transactional(readOnly = true)
     public Page<Order> getUserOrders(Long userId, int page, int size) {
         return orderRepo.findByUserIdOrderByOrderedAtDesc(userId,
                 PageRequest.of(page, size));
     }
 
+    @Transactional(readOnly = true)
     public Page<Order> getStoreOrders(Long storeId, int page, int size) {
         return orderRepo.findByStoreIdOrderByOrderedAtDesc(storeId,
                 PageRequest.of(page, size));
     }
 
+    @Transactional(readOnly = true)
+    public boolean isStoreOwner(Long storeId, Long userId) {
+        return storeRepo.existsByIdAndOwnerId(storeId, userId);
+    }
+
+    @Transactional(readOnly = true)
     public Order getById(Long id) {
         return orderRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Sipariş bulunamadı: " + id));
@@ -84,11 +92,13 @@ public class OrderService {
         return orderRepo.save(order);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> dailyRevenue(Long storeId, int days) {
         return orderRepo.getDailySalesByStore(storeId, days);
     }
 
+    @Transactional(readOnly = true)
     public Object salesByCategory(Long storeId) {
-        return orderRepo.getDailySalesByStore(storeId, 30);
+        return orderRepo.getSalesByCategory(storeId);
     }
 }

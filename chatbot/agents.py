@@ -136,6 +136,14 @@ def guardrails_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 2: Guardrails Check"""
     if detect_injection(state["question"]):
         return {**state, "is_in_scope": "out_of_scope"}
+
+    # Önce basit greeting kontrolü yap — LLM'e gerek yok
+    greetings = ["merhaba", "selam", "hello", "hi", "hey", "nasılsın",
+                 "iyi günler", "günaydın", "iyi akşamlar", "naber", "ne haber"]
+    q_lower = state["question"].lower().strip()
+    if any(q_lower.startswith(g) or q_lower == g for g in greetings):
+        return {**state, "is_in_scope": "greeting"}
+
     config = AGENT_CONFIGS["guardrails_agent"]
     response = call_llm(config["system_prompt"], state["question"])
     try:

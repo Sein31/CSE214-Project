@@ -1,5 +1,5 @@
 import { Component, Input, Output, EventEmitter, OnInit, signal } from '@angular/core';
-import { NgIf, DecimalPipe } from '@angular/common';
+import { NgIf, NgFor, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
@@ -8,7 +8,7 @@ declare var Stripe: any;
 @Component({
   selector: 'app-checkout',
   standalone: true,
-  imports: [NgIf, DecimalPipe, FormsModule],
+  imports: [NgIf, NgFor, DecimalPipe, FormsModule],
   template: `
     <div class="checkout-overlay" (click)="onCancel()">
       <div class="checkout-modal" (click)="$event.stopPropagation()">

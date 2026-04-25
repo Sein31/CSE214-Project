@@ -54,19 +54,21 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
 
     sql_check = sql.upper()
 
-    if role == "CORPORATE" and store_id:
+    if role == "CORPORATE":
+        enforced_store = store_id if store_id else -1
         if any(t in sql_check for t in ["ORDERS", "PRODUCTS", "SHIPMENTS", "REVIEWS", "ORDER_ITEMS"]):
             if "WHERE" in sql_check:
-                sql = inject_condition(sql, f"store_id = {store_id}")
+                sql = inject_condition(sql, f"store_id = {enforced_store}")
             else:
-                sql = sql + f" WHERE store_id = {store_id}"
+                sql = sql + f" WHERE store_id = {enforced_store}"
 
-    if role == "INDIVIDUAL" and user_id:
+    if role == "INDIVIDUAL":
+        enforced_user = user_id if user_id else -1
         if any(t in sql_check for t in ["ORDERS", "ORDER_ITEMS"]):
             if "WHERE" in sql_check:
-                sql = inject_condition(sql, f"user_id = {user_id}")
+                sql = inject_condition(sql, f"user_id = {enforced_user}")
             else:
-                sql = sql + f" WHERE user_id = {user_id}"
+                sql = sql + f" WHERE user_id = {enforced_user}"
 
     return sql
 

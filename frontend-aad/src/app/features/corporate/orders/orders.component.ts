@@ -87,6 +87,15 @@ export class OrdersComponent implements OnInit {
 
   updateStatus(id: number, status: string) {
     if (!status) return;
-    this.api.updateOrderStatus(id, status).subscribe(() => this.ngOnInit());
+    this.api.updateOrderStatus(id, status).subscribe(() => {
+      if (status === 'SHIPPED') {
+        this.api.createShipment(id, { carrier: 'Yurtiçi Kargo', mode: 'ROAD', level: 'STANDARD' }).subscribe({
+          next: () => this.ngOnInit(),
+          error: () => this.ngOnInit() // Zaten varsa yoksay
+        });
+      } else {
+        this.ngOnInit();
+      }
+    });
   }
 }

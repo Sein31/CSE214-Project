@@ -30,6 +30,10 @@ export const routes: Routes = [
       { path: 'dashboard', loadComponent: () => import('./features/corporate/dashboard/corporate-dashboard.component').then(m => m.CorporateDashboardComponent) },
       { path: 'products',  loadComponent: () => import('./features/corporate/products/products.component').then(m => m.ProductsComponent) },
       { path: 'orders',    loadComponent: () => import('./features/corporate/orders/orders.component').then(m => m.OrdersComponent) },
+      { path: 'analytics', loadComponent: () => import('./features/corporate/analytics/corporate-analytics.component').then(m => m.CorporateAnalyticsComponent) },
+      { path: 'customers', loadComponent: () => import('./features/corporate/customers/corporate-customers.component').then(m => m.CorporateCustomersComponent) },
+      { path: 'shipments', loadComponent: () => import('./features/corporate/shipments/corporate-shipments.component').then(m => m.CorporateShipmentsComponent) },
+      { path: 'reviews',   loadComponent: () => import('./features/corporate/reviews/corporate-reviews.component').then(m => m.CorporateReviewsComponent) },
     ]
   },
 

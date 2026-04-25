@@ -44,4 +44,13 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query(value = "SELECT DATE(ordered_at) as date, SUM(grand_total) as revenue, COUNT(*) as orders FROM orders WHERE store_id=:sid AND ordered_at >= DATE_SUB(NOW(), INTERVAL :days DAY) GROUP BY DATE(ordered_at) ORDER BY date", nativeQuery = true)
     List<Map<String, Object>> getDailySalesByStore(@Param("sid") Long storeId, @Param("days") int days);
+
+    @Query(value = "SELECT c.name as categoryName, SUM(oi.quantity) as totalSales " +
+                   "FROM order_items oi " +
+                   "JOIN orders o ON oi.order_id = o.id " +
+                   "JOIN products p ON oi.product_id = p.id " +
+                   "JOIN categories c ON p.category_id = c.id " +
+                   "WHERE o.store_id = :sid " +
+                   "GROUP BY c.name", nativeQuery = true)
+    List<Map<String, Object>> getSalesByCategory(@Param("sid") Long storeId);
 }

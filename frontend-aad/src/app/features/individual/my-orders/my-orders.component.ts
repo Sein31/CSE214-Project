@@ -73,11 +73,11 @@ const STATUS_MAP: Record<string,{label:string,color:string,icon:string}> = {
                 </div>
               </div>
 
-              <div class="ship-info" *ngIf="o.status==='SHIPPED'||o.status==='DELIVERED'">
+              <div class="ship-info" *ngIf="shipments()[o.id] || o.status==='SHIPPED'||o.status==='DELIVERED'">
                 <h4>🚚 Kargo</h4>
-                <div class="irow"><span>Takip No:</span><code>TRK-{{o.id}}-{{o.id*7}}</code></div>
-                <div class="irow"><span>Kargo Firması:</span><span>Yurtiçi Kargo</span></div>
-                <div class="irow"><span>Tahmini Teslim:</span><span>1-3 iş günü</span></div>
+                <div class="irow"><span>Takip No:</span><code>{{ shipments()[o.id]?.trackingNumber || 'TRK-' + o.id + '-' + o.id*7 }}</code></div>
+                <div class="irow"><span>Kargo Firması:</span><span>{{ shipments()[o.id]?.carrier || 'Yurtiçi Kargo' }}</span></div>
+                <div class="irow"><span>Tahmini Teslim:</span><span>{{ shipments()[o.id]?.estimatedDelivery ? (shipments()[o.id]?.estimatedDelivery | date:'dd MMM') : '1-3 iş günü' }}</span></div>
               </div>
 
               <div class="pay-info">
@@ -188,7 +188,17 @@ export class MyOrdersComponent implements OnInit {
   get activeCount()    { return this.orders().filter((o:any)=>['PENDING','CONFIRMED','PROCESSING','SHIPPED'].includes(o.status)).length; }
   get totalSpent()     { return this.orders().filter((o:any)=>o.status==='DELIVERED').reduce((s:number,o:any)=>s+o.grandTotal,0); }
   st(s:string)         { return STATUS_MAP[s]||{label:s,color:'#94a3b8',icon:'📦'}; }
-  toggle(id:number)    { this.expandedId=this.expandedId===id?null:id; }
+  shipments = signal<Record<number, any>>({});
+
+  toggle(id:number) { 
+    this.expandedId=this.expandedId===id?null:id; 
+    if (this.expandedId) {
+      this.api.getShipment(id).subscribe({
+        next: (res) => this.shipments.update(s => ({...s, [id]: res})),
+        error: () => {} // Kargo kaydı yok
+      });
+    }
+  }
 
   getTimeline(status:string) {
     const order=['PENDING','CONFIRMED','PROCESSING','SHIPPED','DELIVERED'];
@@ -198,7 +208,25 @@ export class MyOrdersComponent implements OnInit {
   }
 
   openReview(o:any) { this.reviewOrder=o; this.reviewRating=5; this.reviewTitle=''; this.reviewBody=''; }
-  submitReview() { this.reviewOrder=null; alert('Değerlendirmeniz için teşekkürler! ⭐'); }
+  
+  submitReview() { 
+    if (!this.reviewOrder) return;
+    const payload = {
+      productId: this.reviewOrder.items[0].product.id, // ilk ürüne yorum yap (basitlik için)
+      orderId: this.reviewOrder.id,
+      starRating: this.reviewRating,
+      title: this.reviewTitle,
+      body: this.reviewBody
+    };
+    
+    this.api.submitReview(payload).subscribe({
+      next: () => {
+        this.reviewOrder=null; 
+        alert('Değerlendirmeniz için teşekkürler! ⭐');
+      },
+      error: (err) => alert('Hata: ' + err.error?.error)
+    });
+  }
 
   exportCSV() {
     const rows=this.filteredOrders().map((o:any)=>`${o.id},${o.orderedAt},${o.status},${o.grandTotal},${o.paymentMethod}`);

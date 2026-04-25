@@ -12,7 +12,7 @@ import java.util.List;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Order {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-    @JsonIgnore@ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "user_id",  nullable = false) private User  user;
+    @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "user_id",  nullable = false) private User  user;
     @JsonIgnore@ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "store_id", nullable = false) private Store store;
     @Enumerated(EnumType.STRING)                    private OrderStatus   status;
     @Enumerated(EnumType.STRING) @Column(name = "payment_method") private PaymentMethod paymentMethod;

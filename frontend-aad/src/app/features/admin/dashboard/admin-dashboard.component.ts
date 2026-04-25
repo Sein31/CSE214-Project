@@ -129,10 +129,11 @@ export class AdminDashboardComponent implements OnInit {
   stats  = signal<any>(null);
   navItems: NavItem[] = [
     { label: 'Dashboard',    icon: '🏠', path: '/admin' },
+    { label: 'AI Asistan',   icon: '🤖', path: '/chat' },
     { label: 'Kullanıcılar', icon: '👥', path: '/admin/users' },
     { label: 'Mağazalar',    icon: '🏪', path: '/admin/stores' },
     { label: 'Kategoriler',  icon: '📂', path: '/admin/categories' },
-    { label: 'AI Asistan',   icon: '🤖', path: '/chat' },
+    { label: 'Audit Logs',   icon: '📋', path: '/admin/logs' },
   ];
 
   // Chart data

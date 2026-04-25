@@ -38,9 +38,8 @@ public class OrderController {
                 return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
         }
         if (user.getRoleType() == User.RoleType.CORPORATE) {
-            boolean owns = user.getStores().stream()
-                    .anyMatch(s -> s.getId().equals(order.getStore().getId()));
-            if (!owns) return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+            if (!orderService.isStoreOwner(order.getStore().getId(), user.getId())) 
+                return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
         }
         return ResponseEntity.ok(order);
     }
@@ -54,8 +53,8 @@ public class OrderController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         if (user.getRoleType() == User.RoleType.CORPORATE) {
-            boolean owns = user.getStores().stream().anyMatch(s -> s.getId().equals(storeId));
-            if (!owns) return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+            if (!orderService.isStoreOwner(storeId, user.getId())) 
+                return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
         }
         return ResponseEntity.ok(orderService.getStoreOrders(storeId, page, size));
     }
@@ -82,8 +81,8 @@ public class OrderController {
         try {
             Order order = orderService.getById(id);
             if (user.getRoleType() == User.RoleType.CORPORATE) {
-                boolean owns = user.getStores().stream().anyMatch(s -> s.getId().equals(order.getStore().getId()));
-                if (!owns) return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+                if (!orderService.isStoreOwner(order.getStore().getId(), user.getId())) 
+                    return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
             }
             return ResponseEntity.ok(orderService.updateStatus(id, Order.OrderStatus.valueOf(body.get("status"))));
         } catch (Exception e) {
@@ -97,8 +96,8 @@ public class OrderController {
             @AuthenticationPrincipal User user,
             @RequestParam(defaultValue = "30") int days) {
         if (user.getRoleType() == User.RoleType.CORPORATE) {
-            boolean owns = user.getStores().stream().anyMatch(s -> s.getId().equals(storeId));
-            if (!owns) return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+            if (!orderService.isStoreOwner(storeId, user.getId())) 
+                return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
         }
         return ResponseEntity.ok(orderService.dailyRevenue(storeId, days));
     }
@@ -108,8 +107,8 @@ public class OrderController {
     public ResponseEntity<?> salesByCategory(@PathVariable Long storeId,
             @AuthenticationPrincipal User user) {
         if (user.getRoleType() == User.RoleType.CORPORATE) {
-            boolean owns = user.getStores().stream().anyMatch(s -> s.getId().equals(storeId));
-            if (!owns) return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+            if (!orderService.isStoreOwner(storeId, user.getId())) 
+                return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
         }
         return ResponseEntity.ok(orderService.salesByCategory(storeId));
     }

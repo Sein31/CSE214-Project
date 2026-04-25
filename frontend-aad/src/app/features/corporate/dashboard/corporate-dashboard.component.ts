@@ -24,7 +24,7 @@ import { ChartComponent } from '../../../shared/components/chart/chart.component
           <div class="grid-4">
             <div class="kpi-card accent-green">
               <div class="kpi-icon">💰</div>
-              <div class="kpi-value">{{stats().monthlyRevenue | number:'1.0-0'}} ₺</div>
+              <div class="kpi-value">{{(stats().monthlyRevenue || 0) | number:'1.0-0'}} ₺</div>
               <div class="kpi-label">Aylık Gelir</div>
             </div>
             <div class="kpi-card">
@@ -105,11 +105,11 @@ import { ChartComponent } from '../../../shared/components/chart/chart.component
               </div>
               <div class="dist-row">
                 <span>Aylık Gelir</span>
-                <span class="amount">{{stats().monthlyRevenue | number:'1.0-0'}} ₺</span>
+                <span class="amount">{{(stats().monthlyRevenue || 0) | number:'1.0-0'}} ₺</span>
               </div>
               <div class="dist-row">
                 <span>Toplam Gelir</span>
-                <span class="amount">{{stats().totalRevenue | number:'1.0-0'}} ₺</span>
+                <span class="amount">{{(stats().totalRevenue || 0) | number:'1.0-0'}} ₺</span>
               </div>
             </div>
           </div>
@@ -151,9 +151,13 @@ export class CorporateDashboardComponent implements OnInit {
   stats = signal<any>(null);
   navItems: NavItem[] = [
     { label: 'Dashboard',  icon: '🏠', path: '/corporate/dashboard' },
-    { label: 'Ürünler',    icon: '📦', path: '/corporate/products' },
-    { label: 'Siparişler', icon: '🛒', path: '/corporate/orders' },
     { label: 'AI Asistan', icon: '🤖', path: '/chat' },
+    { label: 'Analitik',   icon: '📈', path: '/corporate/analytics' },
+    { label: 'Siparişler', icon: '🛒', path: '/corporate/orders' },
+    { label: 'Ürünler',    icon: '📦', path: '/corporate/products' },
+    { label: 'Müşteriler', icon: '👥', path: '/corporate/customers' },
+    { label: 'Kargo',      icon: '🚚', path: '/corporate/shipments' },
+    { label: 'Yorumlar',   icon: '⭐', path: '/corporate/reviews' },
   ];
 
   // Chart data
