@@ -183,7 +183,14 @@ def guardrails_node(state: AgentState) -> AgentState:
             "diğer kişi", "baska kisi", "başka kişi",
             "user id", "kullanıcı id", "müşteri id",
         ]
-        if any(p in q_lower for p in cross_user_patterns):
+        cross_company_patterns = [
+            "diğer mağaza", "diger magaza", "başka mağaza", "baska magaza",
+            "diğer store", "diger store", "başka store", "baska store",
+            "tüm mağazalar", "tum magazalar", "tüm store", "tum store",
+            "firma", "şirket", "sirket", "company", "companies",
+            "satıcı", "satici", "top 3 firma", "ilk 3 firma", "first 3 companies",
+        ]
+        if any(p in q_lower for p in cross_user_patterns + cross_company_patterns):
             return {**state, "is_in_scope": "individual_scope_violation"}
 
     # Önce basit greeting kontrolü yap — LLM'e gerek yok

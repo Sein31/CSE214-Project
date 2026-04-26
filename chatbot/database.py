@@ -96,12 +96,21 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
         if not user_id:
             raise PermissionError("Bu bilgiyi paylasamam.")
         enforced_user = user_id
+        # Individual kullanıcı store/company seviyesinde toplu analiz sorgulayamaz.
+        if has_table("STORES"):
+            raise PermissionError("Bu bilgiyi paylasamam.")
         if has_table("ORDERS"):
             sql = inject_condition(sql, f"user_id = {enforced_user}")
         if has_table("ORDER_ITEMS"):
             sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
         if has_table("SHIPMENTS"):
             sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
+        if has_table("PRODUCTS"):
+            sql = inject_condition(
+                sql,
+                f"id IN (SELECT oi.product_id FROM order_items oi "
+                f"JOIN orders o ON oi.order_id=o.id WHERE o.user_id = {enforced_user})"
+            )
         if has_table("REVIEWS"):
             sql = inject_condition(sql, f"user_id = {enforced_user}")
         if has_table("CUSTOMER_PROFILES"):
