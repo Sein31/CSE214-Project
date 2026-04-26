@@ -49,6 +49,11 @@ Ensure MySQL is running and create the database:
 CREATE DATABASE aad_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
+Or initialize schema + minimal seed in one step:
+```bash
+mysql -u root -p < database/aad_db_init.sql
+```
+
 ### 2. Backend (Spring Boot)
 ```bash
 cd aad
@@ -63,6 +68,11 @@ Before starting backend, set these environment variables with your own values:
 - `STRIPE_PUBLISHABLE_KEY`
 - `AI_CHATBOT_API_KEY`
 - `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (optional if using defaults)
+
+Demo seed users created by `database/aad_db_init.sql`:
+- `admin@datapulse.local`
+- `corp@datapulse.local`
+- `customer@datapulse.local`
 
 ### 3. Frontend (Angular)
 ```bash
