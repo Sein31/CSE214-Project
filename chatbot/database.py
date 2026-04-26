@@ -96,22 +96,40 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
         if not user_id:
             raise PermissionError("Bu bilgiyi paylasamam.")
         enforced_user = user_id
+        sql_upper = sql.upper()
+
+        # Individual kullanıcılar için güvenli global ürün analitik sorgularına izin ver:
+        # - aggregate odaklı olmalı
+        # - kullanıcı/sipariş/store kimliği döndüren kolonlar içermemeli
+        # - müşteri/store tablolarına dokunmamalı
+        def is_safe_global_product_aggregate() -> bool:
+            has_aggregate = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("])
+            touches_forbidden_tables = any(
+                has_table(t) for t in ["USERS", "CUSTOMER_PROFILES", "STORES", "SHIPMENTS"]
+            )
+            leaks_identity_fields = any(
+                field in sql_upper for field in ["USER_ID", "ORDER_ID", "STORE_ID", "EMAIL", "FIRST_NAME", "LAST_NAME"]
+            )
+            return has_aggregate and not touches_forbidden_tables and not leaks_identity_fields
+
+        safe_global_product_aggregate = is_safe_global_product_aggregate()
+
         # Individual kullanıcı store/company seviyesinde toplu analiz sorgulayamaz.
         if has_table("STORES"):
             raise PermissionError("Bu bilgiyi paylasamam.")
-        if has_table("ORDERS"):
+        if has_table("ORDERS") and not safe_global_product_aggregate:
             sql = inject_condition(sql, f"user_id = {enforced_user}")
-        if has_table("ORDER_ITEMS"):
+        if has_table("ORDER_ITEMS") and not safe_global_product_aggregate:
             sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
         if has_table("SHIPMENTS"):
             sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
-        if has_table("PRODUCTS"):
+        if has_table("PRODUCTS") and not safe_global_product_aggregate:
             sql = inject_condition(
                 sql,
                 f"id IN (SELECT oi.product_id FROM order_items oi "
                 f"JOIN orders o ON oi.order_id=o.id WHERE o.user_id = {enforced_user})"
             )
-        if has_table("REVIEWS"):
+        if has_table("REVIEWS") and not safe_global_product_aggregate:
             sql = inject_condition(sql, f"user_id = {enforced_user}")
         if has_table("CUSTOMER_PROFILES"):
             sql = inject_condition(sql, f"user_id = {enforced_user}")
