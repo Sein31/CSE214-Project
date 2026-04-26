@@ -9,7 +9,16 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-@Entity @Table(name = "products")
+@Entity
+@Table(
+        name = "products",
+        indexes = {
+                @Index(name = "idx_products_store_id", columnList = "store_id"),
+                @Index(name = "idx_products_category_id", columnList = "category_id"),
+                @Index(name = "idx_products_sku", columnList = "sku"),
+                @Index(name = "idx_products_name", columnList = "name")
+        }
+)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Product {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;

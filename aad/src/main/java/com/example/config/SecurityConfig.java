@@ -42,7 +42,8 @@ public class SecurityConfig {
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
                     "/swagger-ui.html",
-                    "/actuator/**"
+                    "/actuator/health",
+                    "/actuator/info"
                 ).permitAll()
                 // Her şey authenticated
                 .anyRequest().authenticated()

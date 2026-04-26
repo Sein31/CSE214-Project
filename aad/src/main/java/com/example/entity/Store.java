@@ -8,7 +8,15 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 import java.util.List;
 
-@Entity @Table(name = "stores")
+@Entity
+@Table(
+        name = "stores",
+        indexes = {
+                @Index(name = "idx_stores_owner_id", columnList = "owner_id"),
+                @Index(name = "idx_stores_status", columnList = "status"),
+                @Index(name = "idx_stores_city", columnList = "city")
+        }
+)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Store {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;

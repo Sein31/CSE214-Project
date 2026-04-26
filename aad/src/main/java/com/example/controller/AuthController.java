@@ -2,7 +2,9 @@ package com.example.controller;
 
 import com.example.entity.User;
 import com.example.security.JwtUtil;
+import com.example.service.AuditLogService;
 import com.example.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -17,13 +19,18 @@ public class AuthController {
 
     private final AuthService authService;
     private final JwtUtil     jwtUtil;
+    private final AuditLogService auditLogService;
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@jakarta.validation.Valid @RequestBody com.example.dto.LoginRequest body) {
+    public ResponseEntity<?> login(@jakarta.validation.Valid @RequestBody com.example.dto.LoginRequest body,
+                                   HttpServletRequest request) {
         try {
             String email    = body.getEmail();
             String password = body.getPassword();
             Map<String, Object> result = authService.login(email, password);
+            Long userId = Long.valueOf(result.get("userId").toString());
+            User user = User.builder().id(userId).build();
+            auditLogService.log(user, "LOGIN", "AUTH", userId, request);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             return ResponseEntity.status(401).body(Map.of("error", e.getMessage()));
@@ -31,8 +38,11 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@AuthenticationPrincipal User user) {
-        if (user != null) authService.logout(user.getId());
+    public ResponseEntity<?> logout(@AuthenticationPrincipal User user, HttpServletRequest request) {
+        if (user != null) {
+            authService.logout(user.getId());
+            auditLogService.log(user, "LOGOUT", "AUTH", user.getId(), request);
+        }
         return ResponseEntity.ok(Map.of("message", "Çıkış yapıldı"));
     }
 

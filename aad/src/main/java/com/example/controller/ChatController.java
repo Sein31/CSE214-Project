@@ -3,8 +3,13 @@ package com.example.controller;
 import com.example.entity.Store;
 import com.example.entity.User;
 import com.example.repository.StoreRepository;
+import com.example.service.AuditLogService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -20,12 +25,28 @@ import java.util.Map;
 public class ChatController {
 
     private final StoreRepository storeRepository;
+    private final AuditLogService auditLogService;
 
     @Value("${ai.chatbot.url}")
     private String chatbotUrl;
+    @Value("${ai.chatbot.api-key}")
+    private String chatbotApiKey;
 
     @PostMapping
-    public ResponseEntity<?> chat(@RequestBody Map<String, Object> body, @AuthenticationPrincipal User user) {
+    public ResponseEntity<?> chat(@RequestBody Map<String, Object> body,
+                                  @AuthenticationPrincipal User user,
+                                  HttpServletRequest request) {
+        return handleChat(body, user, request);
+    }
+
+    @PostMapping("/ask")
+    public ResponseEntity<?> ask(@RequestBody Map<String, Object> body,
+                                 @AuthenticationPrincipal User user,
+                                 HttpServletRequest request) {
+        return handleChat(body, user, request);
+    }
+
+    private ResponseEntity<?> handleChat(Map<String, Object> body, User user, HttpServletRequest request) {
         if (user == null) {
             return ResponseEntity.status(401).body(Map.of("error", "Giriş yapılmamış"));
         }
@@ -50,7 +71,11 @@ public class ChatController {
 
         RestTemplate restTemplate = new RestTemplate();
         try {
-            ResponseEntity<Map> response = restTemplate.postForEntity(chatbotUrl + "/chat", pythonPayload, Map.class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Token", chatbotApiKey);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(pythonPayload, headers);
+            ResponseEntity<Map> response = restTemplate.exchange(chatbotUrl + "/chat", HttpMethod.POST, entity, Map.class);
+            auditLogService.log(user, "CHAT_QUERY", "CHAT", user.getId(), request);
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", "AI Servisi hatası: " + e.getMessage()));

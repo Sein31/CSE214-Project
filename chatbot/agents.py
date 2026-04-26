@@ -217,27 +217,25 @@ def greeting_node(state: AgentState) -> AgentState:
 def out_of_scope_node(state: AgentState) -> AgentState:
     """PDF 5.4: If out-of-scope → returns predefined rejection message"""
     return {**state, "final_answer": (
-        "⚠️ Bu soru e-ticaret veri analizi kapsamı dışındadır veya "
-        "güvenlik politikamıza aykırıdır.\n\n"
-        "Satış, sipariş, ürün, müşteri veya mağaza verileriyle ilgili sorular sorabilirsiniz."
+        "Bu bilgiyi paylasamam.\n\n"
+        "Guvenlik politikasi nedeniyle kapsam disi veya yetkisiz sorgulari cevaplayamam. "
+        "Sadece size ait satis, siparis, urun, musteri veya magaza verileriyle ilgili sorular sorabilirsiniz."
     )}
 
 
 def corporate_scope_violation_node(state: AgentState) -> AgentState:
     """AV-02/05: Corporate kullanıcı başka mağazalara erişmeye çalışıyor."""
     return {**state, "final_answer": (
-        "Erisim Reddedildi.\n\n"
-        "Yalnizca kendi magazaniza ait verileri sorgulayabilirsiniz. "
-        "Baska magazalarin satis veya siparis bilgilerine erisim yetkiniz bulunmamaktadir."
+        "Bu bilgiyi paylasamam.\n\n"
+        "Yalnizca kendi magazaniza/sirketinize ait veri ve satis bilgilerini sorgulayabilirsiniz."
     )}
 
 
 def individual_scope_violation_node(state: AgentState) -> AgentState:
     """AV-05: Individual kullanıcı başka kullanıcıların verilerine erişmeye çalışıyor."""
     return {**state, "final_answer": (
-        "Erisim Reddedildi.\n\n"
-        "Yalnizca kendi hesabiniza ait siparis ve profil bilgilerinizi sorgulayabilirsiniz. "
-        "Diger kullanicilarin verilerine erisim kesinlikle yasaklidir."
+        "Bu bilgiyi paylasamam.\n\n"
+        "Yalnizca kendi hesabiniza ait siparis ve profil bilgilerini sorgulayabilirsiniz."
     )}
 
 
@@ -271,6 +269,13 @@ def execute_sql_node(state: AgentState) -> AgentState:
             
         return {**state, "query_result": result, "raw_data": raw_list, "error": None}
     except Exception as e:
+        if "Bu bilgiyi paylasamam" in str(e):
+            return {
+                **state,
+                "is_in_scope": "out_of_scope",
+                "final_answer": "Bu bilgiyi paylasamam.\n\nYalnizca yetkili oldugunuz veri kapsamindaki sorulari cevaplayabilirim.",
+                "error": None
+            }
         return {**state, "error": str(e), "iteration_count": state["iteration_count"] + 1}
 
 
@@ -319,6 +324,8 @@ def route_after_guardrails(state: AgentState) -> str:
 
 
 def route_after_execution(state: AgentState) -> str:
+    if state.get("final_answer"):
+        return "out_of_scope"
     if state.get("error") and state["iteration_count"] < 3:
         return "error_recovery"
     return "analysis"
@@ -357,6 +364,7 @@ def build_graph():
     graph.add_conditional_edges("execute_sql", route_after_execution, {
         "error_recovery": "error_recovery",
         "analysis":       "analysis",
+        "out_of_scope":   "out_of_scope",
     })
     graph.add_edge("error_recovery", "execute_sql")
     graph.add_edge("analysis",       "viz_node")

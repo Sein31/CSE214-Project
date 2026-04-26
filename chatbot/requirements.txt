@@ -7,3 +7,4 @@ sqlalchemy==2.0.36
 pymysql==1.1.1
 python-dotenv==1.0.1
 pandas==2.2.3
+chainlit==1.1.402

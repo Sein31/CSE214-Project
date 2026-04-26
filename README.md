@@ -57,6 +57,13 @@ java -jar target/aad-0.0.1-SNAPSHOT.jar
 ```
 *The application will run on `http://localhost:8081`*
 
+Before starting backend, set these environment variables with your own values:
+- `JWT_SECRET`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `AI_CHATBOT_API_KEY`
+- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (optional if using defaults)
+
 ### 3. Frontend (Angular)
 ```bash
 cd frontend-aad
@@ -74,6 +81,8 @@ pip install -r requirements.txt
 python main.py
 ```
 *The chatbot service will run on `http://localhost:8000`*
+
+Set `AI_CHATBOT_API_KEY` in chatbot runtime too, and keep it the same as backend.
 
 ## 📖 API Documentation
 Once the Spring Boot backend is running, the OpenAPI/Swagger documentation can be accessed at:

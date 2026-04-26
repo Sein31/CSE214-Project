@@ -9,7 +9,15 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Entity @Table(name = "shipments")
+@Entity
+@Table(
+        name = "shipments",
+        indexes = {
+                @Index(name = "idx_shipments_order_id", columnList = "order_id"),
+                @Index(name = "idx_shipments_status", columnList = "status"),
+                @Index(name = "idx_shipments_tracking_number", columnList = "tracking_number")
+        }
+)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Shipment {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;

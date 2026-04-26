@@ -46,6 +46,29 @@ public class OrderService {
                 .orElseThrow(() -> new RuntimeException("Sipariş bulunamadı: " + id));
     }
 
+    @Transactional(readOnly = true)
+    public Order getOrderForUser(Long orderId, Long userId) {
+        return orderRepo.findByIdAndUserId(orderId, userId)
+                .orElseThrow(() -> new RuntimeException("Erisim yasaklandi"));
+    }
+
+    @Transactional(readOnly = true)
+    public Order getOrderForStoreOwner(Long orderId, Long ownerUserId) {
+        return orderRepo.findByIdAndStoreOwnerId(orderId, ownerUserId)
+                .orElseThrow(() -> new RuntimeException("Erisim yasaklandi"));
+    }
+
+    @Transactional(readOnly = true)
+    public Order getOrderForActor(Long orderId, User actor) {
+        if (actor.getRoleType() == User.RoleType.ADMIN) {
+            return getById(orderId);
+        }
+        if (actor.getRoleType() == User.RoleType.CORPORATE) {
+            return getOrderForStoreOwner(orderId, actor.getId());
+        }
+        return getOrderForUser(orderId, actor.getId());
+    }
+
     @Transactional
     public Order createOrder(Long userId, Long storeId,
                              Order.PaymentMethod paymentMethod,

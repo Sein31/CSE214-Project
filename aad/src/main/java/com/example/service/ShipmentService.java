@@ -2,7 +2,7 @@ package com.example.service;
 
 import com.example.entity.Order;
 import com.example.entity.Shipment;
-import com.example.repository.OrderRepository;
+import com.example.entity.User;
 import com.example.repository.ShipmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,12 +17,11 @@ import java.util.UUID;
 public class ShipmentService {
 
     private final ShipmentRepository shipmentRepository;
-    private final OrderRepository orderRepository;
+    private final OrderService orderService;
 
     @Transactional
-    public Shipment createShipmentForOrder(Long orderId, String carrier, Shipment.ModeOfShipment mode, Shipment.ShipServiceLevel level) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Sipariş bulunamadı"));
+    public Shipment createShipmentForOrder(Long orderId, User actor, String carrier, Shipment.ModeOfShipment mode, Shipment.ShipServiceLevel level) {
+        Order order = orderService.getOrderForActor(orderId, actor);
         
         if (shipmentRepository.findByOrderId(orderId).isPresent()) {
             throw new RuntimeException("Bu sipariş için zaten kargo var");
@@ -45,9 +44,10 @@ public class ShipmentService {
     }
     
     @Transactional
-    public Shipment updateShipmentStatus(Long shipmentId, Shipment.ShipmentStatus status) {
+    public Shipment updateShipmentStatus(Long shipmentId, User actor, Shipment.ShipmentStatus status) {
         Shipment shipment = shipmentRepository.findById(shipmentId)
                 .orElseThrow(() -> new RuntimeException("Kargo bulunamadı"));
+        orderService.getOrderForActor(shipment.getOrder().getId(), actor);
         
         shipment.setStatus(status);
         if (status == Shipment.ShipmentStatus.DELIVERED) {
@@ -57,7 +57,8 @@ public class ShipmentService {
     }
     
     @Transactional(readOnly = true)
-    public Shipment getShipmentByOrderId(Long orderId) {
+    public Shipment getShipmentByOrderId(Long orderId, User actor) {
+        orderService.getOrderForActor(orderId, actor);
         return shipmentRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new RuntimeException("Kargo bulunamadı"));
     }

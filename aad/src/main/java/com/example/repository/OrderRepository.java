@@ -11,12 +11,18 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findByUserIdOrderByOrderedAtDesc(Long userId, Pageable pageable);
     Page<Order> findByStoreIdOrderByOrderedAtDesc(Long storeId, Pageable pageable);
+    Optional<Order> findByIdAndUserId(Long id, Long userId);
+    Optional<Order> findByIdAndStoreId(Long id, Long storeId);
+
+    @Query("SELECT o FROM Order o WHERE o.id=:oid AND o.store.owner.id=:ownerId")
+    Optional<Order> findByIdAndStoreOwnerId(@Param("oid") Long orderId, @Param("ownerId") Long ownerId);
 
     long countByUserId(Long userId);
     long countByStoreId(Long storeId);

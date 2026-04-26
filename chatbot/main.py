@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request
+import os
+from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -7,6 +8,7 @@ from collections import defaultdict
 from agents import run_chatbot
 
 app = FastAPI(title="DataPulse AI Chatbot", version="1.0")
+INTERNAL_API_KEY = os.getenv("AI_CHATBOT_API_KEY", "dev-internal-token-change-me")
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,7 +49,10 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest, req: Request):
+def chat(request: ChatRequest, req: Request, x_internal_token: str = Header(default="")):
+    if x_internal_token != INTERNAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized internal caller")
+
     # AV-09: Rate limit kontrolu
     client_ip = req.client.host
     if is_rate_limited(client_ip):

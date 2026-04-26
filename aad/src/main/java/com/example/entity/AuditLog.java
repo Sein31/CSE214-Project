@@ -5,7 +5,15 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
-@Entity @Table(name = "audit_logs")
+@Entity
+@Table(
+        name = "audit_logs",
+        indexes = {
+                @Index(name = "idx_audit_logs_user_id", columnList = "user_id"),
+                @Index(name = "idx_audit_logs_entity", columnList = "entity_type,entity_id"),
+                @Index(name = "idx_audit_logs_created_at", columnList = "created_at")
+        }
+)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class AuditLog {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;

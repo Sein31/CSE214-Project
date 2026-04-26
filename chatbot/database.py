@@ -63,33 +63,51 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
 
     sql_check = sql.upper()
 
-    if role == "CORPORATE":
-        enforced_store = store_id if store_id else -1
-        ORDER_TABLES = {"ORDERS", "PRODUCTS", "SHIPMENTS", "REVIEWS", "ORDER_ITEMS"}
-        has_order_table = any(t in sql_check for t in ORDER_TABLES)
-        has_stores_table = "STORES" in sql_check
+    def has_table(table_name: str) -> bool:
+        return re.search(rf"\b{table_name}\b", sql_check) is not None
 
-        if has_order_table and has_stores_table:
-            # JOIN senaryosu: orders varsa zaten store_id ile kısıtlanıyor.
+    if role == "CORPORATE":
+        if not store_id:
+            raise PermissionError("Bu bilgiyi paylasamam.")
+        enforced_store = store_id
+
+        if has_table("ORDERS"):
             sql = inject_condition(sql, f"store_id = {enforced_store}")
-        elif has_order_table:
-            # SHIPMENTS gibi tablolar JOIN içeriyorsa orders.store_id kullan
-            if "SHIPMENTS" in sql_check or "ORDER_ITEMS" in sql_check:
-                sql = inject_condition(sql, f"orders.store_id = {enforced_store}")
-            else:
-                sql = inject_condition(sql, f"store_id = {enforced_store}")
-        elif has_stores_table:
-            # Sadece stores tablosu — yalnızca kendi mağazasını görsün
-            sql = inject_condition(sql, f"(owner_id = {user_id} OR id = {enforced_store})")
+        if has_table("STORES"):
+            sql = inject_condition(sql, f"(id = {enforced_store} AND owner_id = {user_id})")
+        if has_table("PRODUCTS"):
+            sql = inject_condition(sql, f"store_id = {enforced_store}")
+        if has_table("SHIPMENTS"):
+            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})")
+        if has_table("ORDER_ITEMS"):
+            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})")
+        if has_table("USERS"):
+            sql = inject_condition(sql, f"id IN (SELECT DISTINCT o.user_id FROM orders o WHERE o.store_id = {enforced_store})")
+        if has_table("CUSTOMER_PROFILES"):
+            sql = inject_condition(sql, f"user_id IN (SELECT DISTINCT o.user_id FROM orders o WHERE o.store_id = {enforced_store})")
+        if has_table("REVIEWS"):
+            sql = inject_condition(
+                sql,
+                f"(user_id IN (SELECT DISTINCT o.user_id FROM orders o WHERE o.store_id = {enforced_store}) "
+                f"OR product_id IN (SELECT p.id FROM products p WHERE p.store_id = {enforced_store}))"
+            )
 
     if role == "INDIVIDUAL":
-        enforced_user = user_id if user_id else -1
-        if any(t in sql_check for t in ["ORDERS", "ORDER_ITEMS", "REVIEWS", "SHIPMENTS"]):
-            # JOIN sorgularında tablo adıyla nitelendir (ambiguity önler)
-            if "ORDERS" in sql_check and any(t in sql_check for t in ["SHIPMENTS", "ORDER_ITEMS", "PRODUCTS"]):
-                sql = inject_condition(sql, f"orders.user_id = {enforced_user}")
-            else:
-                sql = inject_condition(sql, f"user_id = {enforced_user}")
+        if not user_id:
+            raise PermissionError("Bu bilgiyi paylasamam.")
+        enforced_user = user_id
+        if has_table("ORDERS"):
+            sql = inject_condition(sql, f"user_id = {enforced_user}")
+        if has_table("ORDER_ITEMS"):
+            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
+        if has_table("SHIPMENTS"):
+            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
+        if has_table("REVIEWS"):
+            sql = inject_condition(sql, f"user_id = {enforced_user}")
+        if has_table("CUSTOMER_PROFILES"):
+            sql = inject_condition(sql, f"user_id = {enforced_user}")
+        if has_table("USERS"):
+            sql = inject_condition(sql, f"id = {enforced_user}")
 
     return sql
 

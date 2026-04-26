@@ -6,7 +6,16 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
-@Entity @Table(name = "reviews")
+@Entity
+@Table(
+        name = "reviews",
+        indexes = {
+                @Index(name = "idx_reviews_user_id", columnList = "user_id"),
+                @Index(name = "idx_reviews_product_id", columnList = "product_id"),
+                @Index(name = "idx_reviews_order_id", columnList = "order_id"),
+                @Index(name = "idx_reviews_star_rating", columnList = "star_rating")
+        }
+)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Review {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;

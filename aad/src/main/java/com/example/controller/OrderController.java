@@ -2,7 +2,9 @@ package com.example.controller;
 
 import com.example.entity.Order;
 import com.example.entity.User;
+import com.example.service.AuditLogService;
 import com.example.service.OrderService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,6 +20,7 @@ import java.util.Map;
 public class OrderController {
 
     private final OrderService orderService;
+    private final AuditLogService auditLogService;
 
     @GetMapping("/my")
     @Transactional(readOnly = true)
@@ -32,16 +35,14 @@ public class OrderController {
     @Transactional(readOnly = true)
     public ResponseEntity<?> getById(@PathVariable Long id,
                                       @AuthenticationPrincipal User user) {
-        Order order = orderService.getById(id);
-        if (user.getRoleType() == User.RoleType.INDIVIDUAL) {
-            if (!order.getUser().getId().equals(user.getId()))
+        try {
+            return ResponseEntity.ok(orderService.getOrderForActor(id, user));
+        } catch (RuntimeException e) {
+            if (isAccessDenied(e)) {
                 return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+            }
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
-        if (user.getRoleType() == User.RoleType.CORPORATE) {
-            if (!orderService.isStoreOwner(order.getStore().getId(), user.getId())) 
-                return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
-        }
-        return ResponseEntity.ok(order);
     }
 
     // AV-02: Corporate sadece kendi magazasini gorebilir
@@ -61,14 +62,17 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<?> createOrder(@RequestBody Map<String, Object> body,
-                                          @AuthenticationPrincipal User user) {
+                                          @AuthenticationPrincipal User user,
+                                          HttpServletRequest request) {
         try {
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> items = (List<Map<String, Object>>) body.get("items");
-            return ResponseEntity.ok(orderService.createOrder(user.getId(),
+            Order created = orderService.createOrder(user.getId(),
                     Long.valueOf(body.get("storeId").toString()),
                     Order.PaymentMethod.valueOf(body.getOrDefault("paymentMethod","CREDIT_CARD").toString()),
-                    items));
+                    items);
+            auditLogService.log(user, "ORDER_CREATE", "ORDER", created.getId(), request);
+            return ResponseEntity.ok(created);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -77,29 +81,33 @@ public class OrderController {
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('CORPORATE','ADMIN')")
     public ResponseEntity<?> updateStatus(@PathVariable Long id,
-            @RequestBody Map<String, String> body, @AuthenticationPrincipal User user) {
+            @RequestBody Map<String, String> body, @AuthenticationPrincipal User user,
+            HttpServletRequest request) {
         try {
-            Order order = orderService.getById(id);
-            if (user.getRoleType() == User.RoleType.CORPORATE) {
-                if (!orderService.isStoreOwner(order.getStore().getId(), user.getId())) 
-                    return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
-            }
-            return ResponseEntity.ok(orderService.updateStatus(id, Order.OrderStatus.valueOf(body.get("status"))));
+            orderService.getOrderForActor(id, user);
+            Order updated = orderService.updateStatus(id, Order.OrderStatus.valueOf(body.get("status")));
+            auditLogService.log(user, "ORDER_STATUS_UPDATE", "ORDER", id, request);
+            return ResponseEntity.ok(updated);
         } catch (Exception e) {
+            if (isAccessDenied(e)) {
+                return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
+            }
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 
     @PostMapping("/{id}/return")
-    public ResponseEntity<?> returnOrder(@PathVariable Long id, @AuthenticationPrincipal User user) {
+    public ResponseEntity<?> returnOrder(@PathVariable Long id, @AuthenticationPrincipal User user,
+                                         HttpServletRequest request) {
         try {
-            Order order = orderService.getById(id);
-            if (!order.getUser().getId().equals(user.getId())) {
-                return ResponseEntity.status(403).body(Map.of("error", "Bu siparişi iade etme yetkiniz yok"));
-            }
+            orderService.getOrderForUser(id, user.getId());
             orderService.processReturn(id);
+            auditLogService.log(user, "ORDER_RETURN", "ORDER", id, request);
             return ResponseEntity.ok(Map.of("message", "İade başarıyla işlendi ve stoklara geri eklendi."));
         } catch (Exception e) {
+            if (isAccessDenied(e)) {
+                return ResponseEntity.status(403).body(Map.of("error", "Bu siparişi iade etme yetkiniz yok"));
+            }
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
@@ -125,5 +133,10 @@ public class OrderController {
                 return ResponseEntity.status(403).body(Map.of("error", "Erisim yasaklandi"));
         }
         return ResponseEntity.ok(orderService.salesByCategory(storeId));
+    }
+
+    private boolean isAccessDenied(Exception e) {
+        String message = e.getMessage();
+        return message != null && message.toLowerCase().contains("erisim yasaklandi");
     }
 }
