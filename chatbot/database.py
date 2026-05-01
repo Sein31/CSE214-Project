@@ -71,25 +71,82 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
             raise PermissionError("Bu bilgiyi paylasamam.")
         enforced_store = store_id
 
-        if has_table("ORDERS"):
-            sql = inject_condition(sql, f"store_id = {enforced_store}")
+        orders_present = has_table("ORDERS")
+        order_items_present = has_table("ORDER_ITEMS")
+        products_present = has_table("PRODUCTS")
+
+        # Helper: detect table alias (e.g. "orders o", "orders AS o")
+        def get_alias(table_name: str) -> str:
+            alias_match = re.search(
+                rf'\b{table_name}\s+(?:AS\s+)?(\w+)\b', sql, re.IGNORECASE
+            )
+            reserved = {
+                'SET', 'WHERE', 'JOIN', 'ON', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
+                'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'AND', 'OR', 'SELECT', 'FROM',
+            }
+            if alias_match and alias_match.group(1).upper() not in reserved:
+                return alias_match.group(1)
+            return table_name
+
+        # Helper: check if store_id filter already exists for a given table/alias
+        def already_has_store_filter(tbl: str) -> bool:
+            return re.search(
+                rf'\b{re.escape(tbl)}\.store_id\s*=\s*{enforced_store}\b', sql, re.IGNORECASE
+            ) is not None
+
+        # 1) ORDERS — primary filter point for the orders JOIN chain
+        if orders_present:
+            tbl = get_alias("orders")
+            if not already_has_store_filter(tbl):
+                sql = inject_condition(sql, f"{tbl}.store_id = {enforced_store}")
+
+        # 2) PRODUCTS — filter directly if present
+        if products_present:
+            tbl = get_alias("products")
+            if not already_has_store_filter(tbl):
+                sql = inject_condition(sql, f"{tbl}.store_id = {enforced_store}")
+
+        # 3) ORDER_ITEMS — JOIN chain handles it if orders is present;
+        #    otherwise use subquery
+        if order_items_present and not orders_present:
+            tbl = get_alias("order_items")
+            sql = inject_condition(
+                sql, f"{tbl}.order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})"
+            )
+
+        # 4) SHIPMENTS — same logic as order_items
+        if has_table("SHIPMENTS") and not orders_present:
+            tbl = get_alias("shipments")
+            sql = inject_condition(
+                sql, f"{tbl}.order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})"
+            )
+
+        # 5) STORES — filter to own store only
         if has_table("STORES"):
-            sql = inject_condition(sql, f"(id = {enforced_store} AND owner_id = {user_id})")
-        if has_table("PRODUCTS"):
-            sql = inject_condition(sql, f"store_id = {enforced_store}")
-        if has_table("SHIPMENTS"):
-            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})")
-        if has_table("ORDER_ITEMS"):
-            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})")
+            tbl = get_alias("stores")
+            sql = inject_condition(sql, f"{tbl}.id = {enforced_store}")
+
+        # 6) USERS — allow access to customers who ordered from this store
         if has_table("USERS"):
-            sql = inject_condition(sql, f"id IN (SELECT DISTINCT o.user_id FROM orders o WHERE o.store_id = {enforced_store})")
+            tbl = get_alias("users")
+            sql = inject_condition(
+                sql, f"{tbl}.id IN (SELECT DISTINCT o2.user_id FROM orders o2 WHERE o2.store_id = {enforced_store})"
+            )
+
+        # 7) CUSTOMER_PROFILES
         if has_table("CUSTOMER_PROFILES"):
-            sql = inject_condition(sql, f"user_id IN (SELECT DISTINCT o.user_id FROM orders o WHERE o.store_id = {enforced_store})")
+            tbl = get_alias("customer_profiles")
+            sql = inject_condition(
+                sql, f"{tbl}.user_id IN (SELECT DISTINCT o2.user_id FROM orders o2 WHERE o2.store_id = {enforced_store})"
+            )
+
+        # 8) REVIEWS — products of this store OR customers of this store
         if has_table("REVIEWS"):
+            tbl = get_alias("reviews")
             sql = inject_condition(
                 sql,
-                f"(user_id IN (SELECT DISTINCT o.user_id FROM orders o WHERE o.store_id = {enforced_store}) "
-                f"OR product_id IN (SELECT p.id FROM products p WHERE p.store_id = {enforced_store}))"
+                f"({tbl}.product_id IN (SELECT p2.id FROM products p2 WHERE p2.store_id = {enforced_store}) "
+                f"OR {tbl}.user_id IN (SELECT DISTINCT o2.user_id FROM orders o2 WHERE o2.store_id = {enforced_store}))"
             )
 
     if role == "INDIVIDUAL":
@@ -98,43 +155,99 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
         enforced_user = user_id
         sql_upper = sql.upper()
 
-        # Individual kullanıcılar için güvenli global ürün analitik sorgularına izin ver:
-        # - aggregate odaklı olmalı
-        # - kullanıcı/sipariş/store kimliği döndüren kolonlar içermemeli
-        # - müşteri/store tablolarına dokunmamalı
-        def is_safe_global_product_aggregate() -> bool:
-            has_aggregate = any(fn in sql_upper for fn in ["COUNT(", "SUM(", "AVG(", "MAX(", "MIN("])
-            touches_forbidden_tables = any(
-                has_table(t) for t in ["USERS", "CUSTOMER_PROFILES", "STORES", "SHIPMENTS"]
-            )
-            leaks_identity_fields = any(
-                field in sql_upper for field in ["USER_ID", "ORDER_ID", "STORE_ID", "EMAIL", "FIRST_NAME", "LAST_NAME"]
-            )
-            return has_aggregate and not touches_forbidden_tables and not leaks_identity_fields
+        # Individual kullanıcılar için güvenli global katalog sorgularına izin ver.
+        # PUBLIC: ürün adları, fiyatlar, stok, review ortalamaları, best-seller (SUM quantity)
+        # PRIVATE: ciro (grand_total), sipariş sayısı per-user, kişisel veri
+        def is_safe_public_catalog_query() -> bool:
+            """Public katalog/analitik sorgusu mu? (user_id filtresi GEREKMEZ)"""
+            # Kesinlikle yasak tablolar (kişisel veri)
+            if any(has_table(t) for t in ["USERS", "CUSTOMER_PROFILES", "SHIPMENTS"]):
+                return False
+            # Kişisel/finansal kolon sızıntısı
+            financial_fields = ["GRAND_TOTAL", "UNIT_PRICE", "PAYMENT_METHOD"]
+            identity_fields = ["USER_ID", "EMAIL", "FIRST_NAME", "LAST_NAME"]
+            if any(field in sql_upper for field in identity_fields):
+                return False
 
-        safe_global_product_aggregate = is_safe_global_product_aggregate()
+            # ORDERS tablosu varsa: sadece financial aggregate ise engelle
+            if has_table("ORDERS"):
+                if any(field in sql_upper for field in financial_fields):
+                    return False
+                # SELECT ... FROM orders tek başına = sipariş verileri = private
+                if not has_table("PRODUCTS") and not has_table("ORDER_ITEMS"):
+                    return False
 
-        # Individual kullanıcı store/company seviyesinde toplu analiz sorgulayamaz.
-        if has_table("STORES"):
+            # Pure product/store catalog queries (no orders) → always safe
+            if not has_table("ORDERS") and not has_table("ORDER_ITEMS"):
+                return True
+
+            # ORDER_ITEMS + PRODUCTS for best-seller (SUM quantity) → safe
+            # ORDER_ITEMS + financial columns → not safe
+            if has_table("ORDER_ITEMS"):
+                if any(field in sql_upper for field in financial_fields):
+                    return False
+                if has_table("PRODUCTS") or has_table("REVIEWS"):
+                    return True
+
+            return False
+
+        safe_public_catalog = is_safe_public_catalog_query()
+
+        # HARD-BLOCK: INDIVIDUAL kullanıcı USERS tablosunu ASLA sorgulayamaz.
+        # Başka kullanıcıları arama/bulma girişimlerini tamamen engelle.
+        if has_table("USERS"):
+            raise PermissionError("Diger kullanicilarin bilgilerine erisim yetkiniz bulunmamaktadir.")
+
+        # Individual kullanıcı store finansal analizini sorgulayamaz,
+        # ancak ürün kataloğu için mağaza adı/şehir bilgisine erişebilir.
+        if has_table("STORES") and has_table("ORDERS"):
             raise PermissionError("Bu bilgiyi paylasamam.")
-        if has_table("ORDERS") and not safe_global_product_aggregate:
-            sql = inject_condition(sql, f"user_id = {enforced_user}")
-        if has_table("ORDER_ITEMS") and not safe_global_product_aggregate:
+
+        orders_present = has_table("ORDERS")
+        order_items_present = has_table("ORDER_ITEMS")
+        products_present = has_table("PRODUCTS")
+
+        if orders_present and not safe_public_catalog:
+            # MUTLAK user_id KİLİDİ: LLM başka birinin user_id'sini yazmış olsa bile,
+            # HER ZAMAN mevcut kullanıcının ID'sini zorla enjekte et.
+            # Önce LLM'in koymuş olabileceği YANLIŞ user_id filtrelerini kaldır.
+            sql = re.sub(
+                r'\buser_id\s*=\s*\d+', f'user_id = {enforced_user}',
+                sql, flags=re.IGNORECASE
+            )
+            # Eğer hala user_id filtresi yoksa (LLM hiç koymamışsa), ekle.
+            has_correct_filter = re.search(
+                rf'\buser_id\s*=\s*{enforced_user}\b', sql, re.IGNORECASE
+            )
+            if not has_correct_filter:
+                # Detect alias: "orders o" or "orders AS o"
+                alias_match = re.search(
+                    r'\borders\s+(?:AS\s+)?(\w+)\b', sql, re.IGNORECASE
+                )
+                tbl = alias_match.group(1) if alias_match and alias_match.group(1).upper() not in (
+                    'SET', 'WHERE', 'JOIN', 'ON', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
+                    'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'AND', 'OR'
+                ) else "orders"
+                sql = inject_condition(sql, f"{tbl}.user_id = {enforced_user}")
+        elif order_items_present and not safe_public_catalog:
+            # order_items without orders table
             sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
-        if has_table("SHIPMENTS"):
-            sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
-        if has_table("PRODUCTS") and not safe_global_product_aggregate:
+        elif products_present and not safe_public_catalog:
+            # products without orders/order_items tables
             sql = inject_condition(
                 sql,
                 f"id IN (SELECT oi.product_id FROM order_items oi "
                 f"JOIN orders o ON oi.order_id=o.id WHERE o.user_id = {enforced_user})"
             )
-        if has_table("REVIEWS") and not safe_global_product_aggregate:
+
+        # Tables that are NOT covered by orders join chain
+        if has_table("SHIPMENTS"):
+            if not orders_present:
+                sql = inject_condition(sql, f"order_id IN (SELECT o.id FROM orders o WHERE o.user_id = {enforced_user})")
+        if has_table("REVIEWS") and not safe_public_catalog and not products_present:
             sql = inject_condition(sql, f"user_id = {enforced_user}")
         if has_table("CUSTOMER_PROFILES"):
             sql = inject_condition(sql, f"user_id = {enforced_user}")
-        if has_table("USERS"):
-            sql = inject_condition(sql, f"id = {enforced_user}")
 
     return sql
 
@@ -152,9 +265,13 @@ def execute_query(sql: str, role: str = "ADMIN",
     validate_sql(sql)
     if "LIMIT" not in sql.upper():
         sql = sql + " LIMIT 100"
+    print(f"\033[94m[DB] Pre-RBAC  SQL: {sql}\033[0m")
+    print(f"\033[93m[DB] Role={role}, user_id={user_id}, store_id={store_id}\033[0m")
     sql = apply_rbac(sql, role, user_id, store_id)
+    print(f"\033[92m[DB] Post-RBAC SQL: {sql}\033[0m")
     with engine.connect() as conn:
         df = pd.read_sql(text(sql), conn)
+    print(f"\033[96m[DB] Result rows: {len(df)}\033[0m")
     return sanitize_output(df)
 
 

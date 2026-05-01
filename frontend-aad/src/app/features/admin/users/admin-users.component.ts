@@ -26,7 +26,7 @@ const ADMIN_NAV: NavItem[] = [
         <div class="ph">
           <div><h2>Kullanıcı Yönetimi 👥</h2><p class="sub">Tüm platform kullanıcıları</p></div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select [(ngModel)]="filterRole" (change)="load()" class="fsel">
+            <select [(ngModel)]="filterRole" (change)="page=0;load()" class="fsel">
               <option value="">Tüm Roller</option>
               <option value="ADMIN">Admin</option>
               <option value="CORPORATE">Corporate</option>
@@ -67,8 +67,8 @@ const ADMIN_NAV: NavItem[] = [
           </table>
           <div class="pagination">
             <button (click)="prevPage()" [disabled]="page===0">‹ Önceki</button>
-            <span>Sayfa {{page+1}}</span>
-            <button (click)="nextPage()">Sonraki ›</button>
+            <span class="pag-info">Sayfa {{page+1}} / {{totalPages}} &nbsp;·&nbsp; Toplam {{totalElements}} kullanıcı</span>
+            <button (click)="nextPage()" [disabled]="page>=totalPages-1">Sonraki ›</button>
           </div>
         </div>
 
@@ -109,27 +109,36 @@ const ADMIN_NAV: NavItem[] = [
     .pagination{display:flex;justify-content:center;align-items:center;gap:16px;margin-top:20px}
     .pagination button{padding:7px 16px;background:#1e2a45;border:1px solid #2d3a55;border-radius:8px;color:#94a3b8;cursor:pointer}
     .pagination button:disabled{opacity:.4;cursor:not-allowed}
+    .pag-info{font-size:13px;color:#64748b}
     .toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#1e2a45;color:#a78bfa;border:1px solid #6366f1;padding:12px 24px;border-radius:12px;font-weight:600;z-index:400}
   `]
 })
 export class AdminUsersComponent implements OnInit {
-  users    = signal<any[]>([]);
-  navItems = ADMIN_NAV;
-  page     = 0; filterRole = ''; searchQ = ''; toast = '';
-  stats    = {total:0, admins:0, corporate:0, individual:0};
+  users      = signal<any[]>([]);
+  navItems   = ADMIN_NAV;
+  page       = 0; totalPages = 1; totalElements = 0;
+  filterRole = ''; searchQ = ''; toast = '';
+  stats      = {total:0, admins:0, corporate:0, individual:0};
 
   constructor(private api: ApiService) {}
 
-  ngOnInit() { this.load(); }
+  ngOnInit() { this.loadStats(); this.load(); }
+
+  loadStats() {
+    this.api.getUserStats().subscribe((s: any) => {
+      this.stats.total      = s.total      ?? 0;
+      this.stats.admins     = s.admins     ?? 0;
+      this.stats.corporate  = s.corporate  ?? 0;
+      this.stats.individual = s.individual ?? 0;
+    });
+  }
 
   load() {
     this.api.allUsers(this.page, 20).subscribe((d:any) => {
       const content = d.content || d;
       this.users.set(content);
-      this.stats.total      = d.totalElements || content.length;
-      this.stats.admins     = content.filter((u:any)=>u.roleType==='ADMIN').length;
-      this.stats.corporate  = content.filter((u:any)=>u.roleType==='CORPORATE').length;
-      this.stats.individual = content.filter((u:any)=>u.roleType==='INDIVIDUAL').length;
+      this.totalElements = d.totalElements ?? content.length;
+      this.totalPages    = d.totalPages    ?? 1;
     });
   }
 
@@ -142,5 +151,5 @@ export class AdminUsersComponent implements OnInit {
   }
 
   prevPage() { if(this.page>0){ this.page--; this.load(); } }
-  nextPage() { this.page++; this.load(); }
+  nextPage() { if(this.page<this.totalPages-1){ this.page++; this.load(); } }
 }

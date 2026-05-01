@@ -68,6 +68,18 @@ public class UserController {
             .orElse(ResponseEntity.notFound().build());
     }
 
+    // Admin: rol bazlı gerçek toplam sayıları
+    @GetMapping("/stats")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> stats() {
+        return ResponseEntity.ok(Map.of(
+            "total",      userRepo.count(),
+            "admins",     userRepo.countByRoleType(User.RoleType.ADMIN),
+            "corporate",  userRepo.countByRoleType(User.RoleType.CORPORATE),
+            "individual", userRepo.countByRoleType(User.RoleType.INDIVIDUAL)
+        ));
+    }
+
     // Admin: kullanıcı aktif/pasif yap (AV-05 uyumlu)
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasRole('ADMIN')")

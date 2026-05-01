@@ -94,7 +94,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <button (click)="fillDemo('admin@datapulse.com','Admin')" class="demo-btn admin">
               👑 Admin
             </button>
-            <button (click)="fillDemo('corp10@store10.com','Corporate')" class="demo-btn corp">
+            <button (click)="fillDemo('corp19@store19.com','Corporate')" class="demo-btn corp">
               🏢 Corporate
             </button>
             <button (click)="fillDemo('ali@gmail.com','Individual')" class="demo-btn ind">

@@ -108,12 +108,21 @@ export class ApiService {
     return this.http.get(`${BASE}/users`, { params });
   }
 
+  getUserStats(): Observable<any> {
+    return this.http.get(`${BASE}/users/stats`);
+  }
+
   getUser(id: number): Observable<any> {
     return this.http.get(`${BASE}/users/${id}`);
   }
 
   toggleUserStatus(id: number, isActive: boolean): Observable<any> {
     return this.http.patch(`${BASE}/users/${id}/status`, { isActive });
+  }
+
+  // ── Categories ──────────────────────────────────────────────────────────────
+  getCategories(): Observable<any> {
+    return this.http.get(`${BASE}/categories`);
   }
 
   // ── Analytics ─────────────────────────────────────────────────────────────

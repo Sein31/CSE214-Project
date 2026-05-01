@@ -21,11 +21,7 @@ public class PaymentService {
         PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                 .setAmount(amountInKurus)           // kuruş cinsinden (100 = 1 TL)
                 .setCurrency(currency)              // "try" veya "usd"
-                .setAutomaticPaymentMethods(
-                        PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
-                                .setEnabled(true)
-                                .build()
-                )
+                .addPaymentMethodType("card")
                 .build();
 
         PaymentIntent intent = PaymentIntent.create(params);

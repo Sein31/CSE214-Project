@@ -35,6 +35,12 @@ chatbot/.env
 .DS_Store
 Thumbs.db
 
+# Secrets — NEVER commit
+.env
+.env.*
+*.env
+pentest_out.txt
+
 # Other
 *.pdf
 pdf_text.txt

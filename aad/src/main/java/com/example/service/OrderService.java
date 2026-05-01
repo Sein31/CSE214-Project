@@ -84,6 +84,7 @@ public class OrderService {
                 .currency("TRY")
                 .orderedAt(LocalDateTime.now())
                 .grandTotal(BigDecimal.ZERO)
+                .orderItems(new java.util.ArrayList<>())
                 .build();
         order = orderRepo.save(order);
 
@@ -98,6 +99,7 @@ public class OrderService {
                     .quantity(qty)
                     .unitPrice(product.getUnitPrice())
                     .build();
+            order.getOrderItems().add(oi);
 
             total = total.add(product.getUnitPrice().multiply(BigDecimal.valueOf(qty)));
             // Stock güncelle

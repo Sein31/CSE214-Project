@@ -166,6 +166,18 @@ const MOCK_REVIEWS = [
           </div>
         </div>
 
+        <!-- Pagination -->
+        <div class="pagination" *ngIf="totalPages>1">
+          <button (click)="prevPage()" [disabled]="page===0">‹ Önceki</button>
+          <span *ngFor="let pg of pageRange()">
+            <button (click)="goToPage(pg)" [class.active]="pg===page">{{pg+1}}</button>
+          </span>
+          <button (click)="nextPage()" [disabled]="page>=totalPages-1">Sonraki ›</button>
+        </div>
+        <div class="pag-info" *ngIf="totalProducts>0">
+          Sayfa {{page+1}} / {{totalPages}} &nbsp;·&nbsp; Toplam {{totalProducts}} ürün
+        </div>
+
         <ng-template #empty>
           <div class="empty-box">
             <div style="font-size:64px;margin-bottom:16px">🔍</div>
@@ -286,8 +298,8 @@ const MOCK_REVIEWS = [
     /* Section */
     .sec{padding:28px 28px 0}
     .sec-title{font-size:20px;font-weight:700;color:#fff;margin:0 0 16px}
-    .cats{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
-    .cat{display:flex;flex-direction:column;align-items:center;gap:7px;padding:14px 18px;background:#161d30;border:1.5px solid #1e2a45;border-radius:14px;cursor:pointer;min-width:80px;color:#94a3b8;font-size:11px;font-weight:600;transition:all .2s;white-space:nowrap}
+    .cats{display:flex;flex-wrap:wrap;gap:10px;padding-bottom:6px}
+    .cat{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 16px;background:#161d30;border:1.5px solid #1e2a45;border-radius:14px;cursor:pointer;min-width:80px;color:#94a3b8;font-size:11px;font-weight:600;transition:all .2s;white-space:nowrap}
     .cat:hover,.cat.active{border-color:#6366f1;color:#a78bfa;background:rgba(99,102,241,.1)}
     .ce{font-size:22px}
     /* Filter bar */
@@ -349,6 +361,13 @@ const MOCK_REVIEWS = [
     .rev-name{color:#fff;font-size:12px;font-weight:600}
     .rev-date{margin-left:auto;color:#4a5568;font-size:11px}
     .rev-text{color:#94a3b8;font-size:12px;line-height:1.6}
+    /* Pagination */
+    .pagination{display:flex;justify-content:center;align-items:center;gap:8px;padding:24px 28px 8px;flex-wrap:wrap}
+    .pagination button{padding:8px 14px;background:#161d30;border:1px solid #1e2a45;border-radius:8px;color:#94a3b8;cursor:pointer;font-size:13px;transition:all .15s}
+    .pagination button:hover:not(:disabled){border-color:#6366f1;color:#a78bfa}
+    .pagination button.active{background:#6366f1;border-color:#6366f1;color:#fff;font-weight:700}
+    .pagination button:disabled{opacity:.4;cursor:not-allowed}
+    .pag-info{text-align:center;color:#4a5568;font-size:12px;padding-bottom:24px}
     /* Toast */
     .toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#1e2a45;color:#a78bfa;border:1px solid #6366f1;padding:12px 24px;border-radius:12px;font-weight:600;z-index:400;white-space:nowrap;animation:fadeIn .3s ease}
     @keyframes fadeIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -362,24 +381,35 @@ export class ShopComponent implements OnInit {
   showCart = false; showCheckout = false; toastMsg = '';
   cart: Array<{id:number,name:string,price:number,qty:number,storeId:number,image:string}> = [];
   navItems = IND_NAV; categories: string[] = []; totalProducts = 0;
+  page = 0; pageSize = 24; totalPages = 1;
   sortOptions = [{l:'Önerilen',v:'default'},{l:'En Ucuz',v:'asc'},{l:'En Pahalı',v:'desc'},{l:'Popüler',v:'popular'}];
 
   constructor(private api: ApiService) {}
-  ngOnInit() { this.loadProducts(); }
+  ngOnInit() { this.loadProducts(); this.loadAllCategoriesFromProducts(); }
 
-  loadProducts() {
-    this.api.searchProducts('',0,100).subscribe(data => {
-      this.products.set(data);
-      this.totalProducts = data.totalElements||data.content?.length||0;
+  loadAllCategoriesFromProducts() {
+    this.api.searchProducts('', 0, 500).subscribe((data: any) => {
       const cats = new Set<string>();
-      data.content?.forEach((p:any) => { if(p.categoryName) cats.add(p.categoryName); });
-      this.categories = Array.from(cats);
+      (data.content || []).forEach((p: any) => { if (p.categoryName) cats.add(p.categoryName); });
+      this.categories = Array.from(cats).sort();
     });
   }
 
-  search() { this.selectedCategory=null; this.api.searchProducts(this.q,0,100).subscribe(d=>this.products.set(d)); }
-  filterByCategory(c:string) { this.selectedCategory=c; this.api.searchProducts(c,0,100).subscribe(d=>this.products.set(d)); }
-  clearFilter() { this.selectedCategory=null; this.q=''; this.loadProducts(); }
+  loadProducts() {
+    const term = this.selectedCategory || this.q || '';
+    this.api.searchProducts(term, this.page, this.pageSize).subscribe(data => {
+      this.products.set(data);
+      this.totalProducts = data.totalElements || data.content?.length || 0;
+      this.totalPages = data.totalPages || 1;
+    });
+  }
+
+  search() { this.selectedCategory=null; this.page=0; this.loadProducts(); }
+  filterByCategory(c:string) { this.selectedCategory=c; this.page=0; this.loadProducts(); }
+  clearFilter() { this.selectedCategory=null; this.q=''; this.page=0; this.loadProducts(); }
+
+  prevPage() { if(this.page>0){ this.page--; this.loadProducts(); window.scrollTo(0,0); } }
+  nextPage() { if(this.page<this.totalPages-1){ this.page++; this.loadProducts(); window.scrollTo(0,0); } }
 
   sortedProducts() {
     const items=[...(this.products()?.content||[])];
@@ -412,6 +442,15 @@ export class ShopComponent implements OnInit {
     const cat=p.categoryName||'default';
     const imgs=CATEGORY_IMAGES[cat]||CATEGORY_IMAGES['default'];
     return imgs[p.id%imgs.length];
+  }
+
+  goToPage(pg:number) { this.page=pg; this.loadProducts(); window.scrollTo(0,0); }
+  pageRange(): number[] {
+    const range:number[]=[];
+    const start=Math.max(0,this.page-2);
+    const end=Math.min(this.totalPages-1,this.page+2);
+    for(let i=start;i<=end;i++) range.push(i);
+    return range;
   }
 
   showToast(msg:string) { this.toastMsg=msg; setTimeout(()=>this.toastMsg='',2500); }

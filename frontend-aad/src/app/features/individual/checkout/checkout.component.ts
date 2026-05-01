@@ -85,7 +85,8 @@ declare var Stripe: any;
     code{background:#1e2535;padding:2px 8px;border-radius:4px;color:#a78bfa;font-family:monospace}
     .card-form{margin-bottom:16px}
     label{display:block;color:#94a3b8;font-size:13px;font-weight:500;margin-bottom:8px}
-    .stripe-element{background:#0f1117;border:1px solid #2d3748;border-radius:10px;padding:14px;min-height:44px}
+    .stripe-element{background:#0f1117;border:1px solid #2d3748;border-radius:10px;padding:14px;min-height:20px;position:relative;cursor:text}
+    .stripe-element iframe{pointer-events:auto}
     .card-error{color:#fc8181;font-size:13px;margin-top:8px}
     .cardholder{margin-bottom:20px}
     .name-input{width:100%;padding:12px 16px;background:#0f1117;border:1px solid #2d3748;border-radius:10px;color:#fff;font-size:14px;outline:none;box-sizing:border-box}
@@ -119,18 +120,25 @@ export class CheckoutComponent implements OnInit {
   }
 
   loadStripe() {
-    if ((window as any).Stripe) {
-      this.initStripe();
+    const existingScript = document.querySelector('script[src*="js.stripe.com"]');
+    if (existingScript) {
+      if ((window as any).Stripe) {
+        this.initStripe();
+      } else {
+        existingScript.addEventListener('load', () => this.initStripe());
+      }
       return;
     }
     const script = document.createElement('script');
-    script.src = 'https://js.stripe.com/v3/';
+    script.src = 'https://js.stripe.com/v3/?advancedFraudSignals=false';
     script.onload = () => this.initStripe();
     document.head.appendChild(script);
   }
 
   initStripe() {
-    this.stripe = Stripe(this.PUBLISHABLE_KEY);
+    this.stripe = Stripe(this.PUBLISHABLE_KEY, {
+      locale: 'tr',
+    });
     const elements = this.stripe.elements({
       appearance: {
         theme: 'night',
@@ -143,8 +151,24 @@ export class CheckoutComponent implements OnInit {
         }
       }
     });
-    this.cardElement = elements.create('card');
-    this.cardElement.mount('#card-element');
+    this.cardElement = elements.create('card', {
+      disableLink: true,
+      style: {
+        base: {
+          color: '#e2e8f0',
+          fontSize: '15px',
+          fontSmoothing: 'antialiased',
+          '::placeholder': { color: '#4a5568' },
+        },
+        invalid: {
+          color: '#fc8181',
+          iconColor: '#fc8181',
+        },
+      },
+    });
+    setTimeout(() => {
+      this.cardElement.mount('#card-element');
+    });
     this.cardElement.on('change', (event: any) => {
       this.cardError.set(event.error ? event.error.message : '');
     });
