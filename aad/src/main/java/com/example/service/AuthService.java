@@ -54,6 +54,12 @@ public class AuthService {
         result.put("firstName",    user.getFirstName());
         result.put("lastName",     user.getLastName());
         result.put("role",         user.getRoleType().name());
+
+        if (user.getRoleType() == User.RoleType.CORPORATE && user.getStores() != null && !user.getStores().isEmpty()) {
+            var store = user.getStores().iterator().next();
+            result.put("storeId",   store.getId());
+            result.put("storeName", store.getName());
+        }
         return result;
     }
 

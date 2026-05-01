@@ -1,6 +1,6 @@
 import { Component, Input } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { NgFor } from '@angular/common';
+import { NgFor, NgIf } from '@angular/common';
 import { AuthService } from '../../../core/services/auth.service';
 
 export interface NavItem { label: string; icon: string; path: string; }
@@ -8,7 +8,7 @@ export interface NavItem { label: string; icon: string; path: string; }
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, NgFor],
+  imports: [RouterLink, RouterLinkActive, NgFor, NgIf],
   template: `
     <aside class="sidebar">
       <!-- Logo -->
@@ -28,6 +28,9 @@ export interface NavItem { label: string; icon: string; path: string; }
         <div class="user-details">
           <div class="user-name">{{auth.currentUser()?.firstName}} {{auth.currentUser()?.lastName}}</div>
           <div class="user-role">{{auth.currentUser()?.role}}</div>
+          <div class="store-badge" *ngIf="auth.currentUser()?.storeName">
+            🏪 {{auth.currentUser()?.storeName}}
+          </div>
         </div>
       </div>
 
@@ -83,6 +86,7 @@ export interface NavItem { label: string; icon: string; path: string; }
     }
     .user-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
     .user-role { font-size: 11px; color: var(--accent); font-weight: 500; margin-top: 2px; }
+    .store-badge { font-size: 11px; color: #fbbf24; font-weight: 500; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
     .nav { flex: 1; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
     .nav-item {
       display: flex; align-items: center; gap: 12px; padding: 11px 14px;

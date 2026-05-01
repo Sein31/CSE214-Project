@@ -16,14 +16,20 @@ import { ApiService } from '../../../core/services/api.service';
         
         <div class="reviews-grid" *ngIf="reviews().length > 0; else noReviews">
           <div class="card review-card" *ngFor="let r of reviews()">
-            <div class="stars">
-              <span *ngFor="let s of [1,2,3,4,5]" [style.color]="r.starRating >= s ? '#fbbf24' : '#1e2535'">★</span>
+            <div class="rhead">
+              <div class="stars">
+                <span *ngFor="let s of [1,2,3,4,5]" [style.color]="r.starRating >= s ? '#fbbf24' : '#1e2535'">★</span>
+              </div>
+              <span class="sentiment" [class.pos]="r.sentiment==='POSITIVE'" [class.neg]="r.sentiment==='NEGATIVE'" [class.neu]="r.sentiment==='NEUTRAL'">
+                {{r.sentiment==='POSITIVE' ? '😊' : r.sentiment==='NEGATIVE' ? '😞' : '😐'}}
+              </span>
             </div>
-            <h4 class="rtitle">{{r.title}}</h4>
+            <div class="product-name" *ngIf="r.product?.name">📦 {{r.product.name}}</div>
+            <h4 class="rtitle">{{r.title || '(Başlıksız)'}}</h4>
             <p class="rbody">"{{r.body}}"</p>
             <div class="rfooter">
-              <span>Ürün ID: {{r.product?.id}}</span>
-              <span>{{r.createdAt | date:'shortDate'}}</span>
+              <span *ngIf="r.user">👤 {{r.user.firstName}} {{r.user.lastName}}</span>
+              <span>{{r.createdAt | date:'dd.MM.yyyy'}}</span>
             </div>
           </div>
         </div>
@@ -38,11 +44,14 @@ import { ApiService } from '../../../core/services/api.service';
     .sub{color:#64748b;font-size:14px;margin:0 0 24px}
     .card{background:#161b2e;border:1px solid #1e2535;border-radius:12px;padding:24px}
     .reviews-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-    .review-card{display:flex;flex-direction:column}
-    .stars{font-size:20px;margin-bottom:8px}
-    .rtitle{margin:0 0 8px;font-size:16px;color:#fff}
-    .rbody{color:#94a3b8;font-size:14px;font-style:italic;flex:1;margin:0 0 16px}
-    .rfooter{display:flex;justify-content:space-between;font-size:12px;color:#64748b;border-top:1px solid #1e2535;padding-top:12px}
+    .review-card{display:flex;flex-direction:column;gap:8px}
+    .rhead{display:flex;justify-content:space-between;align-items:center}
+    .stars{font-size:20px}
+    .sentiment{font-size:20px}
+    .product-name{font-size:12px;color:#60a5fa;font-weight:500}
+    .rtitle{margin:0;font-size:15px;color:#fff;font-weight:600}
+    .rbody{color:#94a3b8;font-size:14px;font-style:italic;flex:1;margin:0}
+    .rfooter{display:flex;justify-content:space-between;font-size:12px;color:#64748b;border-top:1px solid #1e2535;padding-top:10px;margin-top:4px}
   `]
 })
 export class CorporateReviewsComponent implements OnInit {

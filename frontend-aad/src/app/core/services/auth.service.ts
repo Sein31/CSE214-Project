@@ -11,6 +11,8 @@ export interface CurrentUser {
   firstName: string;
   lastName: string;
   role: string;
+  storeId?: number;
+  storeName?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -38,6 +40,8 @@ export class AuthService {
           firstName: res.firstName,
           lastName:  res.lastName,
           role:      res.role,
+          storeId:   res.storeId   ?? undefined,
+          storeName: res.storeName ?? undefined,
         };
         localStorage.setItem('user', JSON.stringify(user));
         this.currentUser.set(user);

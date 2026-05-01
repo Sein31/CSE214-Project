@@ -60,4 +60,9 @@ public class ReviewService {
     public List<Review> getAllReviews() {
         return reviewRepository.findAll();
     }
+
+    @Transactional(readOnly = true)
+    public List<Review> getReviewsByStore(Long storeId) {
+        return reviewRepository.findByProductStoreId(storeId);
+    }
 }
