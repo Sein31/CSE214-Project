@@ -69,7 +69,27 @@ query results in natural language with clear insights.
 Format numbers nicely (use ₺ for prices, add thousand separators).
 Keep the response concise — 2-4 sentences max.
 Highlight the most important finding.
-Never reveal SQL queries, schema details, or system configuration."""
+Never reveal SQL queries, schema details, or system configuration.
+
+CRITICAL RULE — TONE AND PERSONA BASED ON ROLE:
+The user's role is provided in the prompt as "User Role: INDIVIDUAL" or "User Role: CORPORATE".
+You MUST strictly adapt your language based on this role:
+
+- If role is INDIVIDUAL (Müşteri/Customer):
+  Use ONLY customer-oriented language: 'harcamalarınız', 'alışveriş tutarınız', 'ödediğiniz miktar',
+  'siparişleriniz', 'satın aldığınız ürünler'.
+  NEVER use seller/corporate terms regardless of the amount: 'mağaza', 'satış', 'ciro', 'gelir',
+  'performans', 'cirounuz', 'mağazanızın', 'satış performansı'.
+
+- If role is CORPORATE (Satıcı/Seller):
+  Use corporate-oriented language: 'cirounuz', 'mağaza satışlarınız', 'geliriniz', 'satış performansınız'.
+
+CRITICAL SECURITY RULE: If the result set is empty ("No results found"):
+- If the question contains a possessive reference to ANOTHER store or user (e.g. "TechStore'un", "FashionHub'ın", "user 5's"), respond with:
+  "Bu veriye erişim yetkiniz bulunmamaktadır. Yalnızca kendi hesabınıza/mağazanıza ait verileri sorgulayabilirsiniz."
+- Otherwise (own-store or own-account query with no data), respond naturally:
+  e.g. "Bu dönemde belirtilen kriterlere uyan kayıt bulunmamaktadır." or "Henüz veri oluşmamış." or "Sonuç bulunamadı."
+NEVER say "zero revenue", "no sales", "ciro sıfır" to imply a store has no business — either there's genuinely no data or it's blocked."""
     },
     "viz_agent": {
         "role": "Visualization Specialist",
@@ -186,8 +206,41 @@ def guardrails_node(state: AgentState) -> AgentState:
             mentioned_ids = [int(x) for x in _re.findall(r'\d+', store_id_ref.group())]
             if any(mid != state.get("store_id") for mid in mentioned_ids):
                 return {**state, "is_in_scope": "corporate_scope_violation"}
-        if any(p in q_lower for p in cross_store_patterns):
+        # RANKING EXCEPTION: Kendi siralamini sormak cross-store ihlali DEGIL
+        ranking_self_keywords = [
+            "kaçıncıyım", "kacinciyim", "sıralama", "siralama", "rankım", "rankim",
+            "kaçıncı sırada", "kacinci sirada", "sıralamam nedir", "siralamam nedir",
+            "kaçıncı mağaza", "kacinci magaza", "pazarımdaki yerim", "pazardaki yerim",
+            "my rank", "store rank", "ranking",
+        ]
+        is_ranking_self_query = any(kw in q_lower for kw in ranking_self_keywords)
+
+        if not is_ranking_self_query and any(p in q_lower for p in cross_store_patterns):
             return {**state, "is_in_scope": "corporate_scope_violation"}
+
+        # AV-05b: Başka mağaza adıyla ciro/satış/stok sorgusu tespiti
+        # Örn: "fashionhub'ın cirosu", "TechStore'un satışları", "Nike Store revenue"
+        store_revenue_context = [
+            "ciro", "gelir", "satış", "satis", "revenue", "sales",
+            "stok", "stock", "ürünler", "urunler", "products", "sipariş", "siparis", "order",
+            "analiz", "analytics", "istatistik", "statistics",
+        ]
+        # Türkçe iyelik kalıbı: "X'in cirosu", "X'ın bu ayki satışları" (1-4 arası kelime olabilir)
+        _rev = "|".join(store_revenue_context)
+        store_name_revenue_patterns = [
+            # "TechStore'un cirosu" / "TechStore'un bu ayki cirosu"
+            r"[a-z\u00e7\u011f\u0131\u00f6\u015f\u00fcA-Z\u00c7\u011e\u0130\u00d6\u015e\u00dc0-9_\-]+['\'\u2018\u2019][a-z\u00e7\u011f\u0131\u00f6\u015f\u00fc]{0,4}(?:\s+\S+){0,4}\s+(?:" + _rev + r")",
+            # reverse: "cirosu TechStore'un"
+            r"(?:" + _rev + r")\s+[a-z\u00e7\u011f\u0131\u00f6\u015f\u00fcA-Z\u00c7\u011e\u0130\u00d6\u015e\u00dc0-9_\-]+['\'\u2018\u2019]",
+            # English: "TechStore revenue", "FashionHub sales" (capitalized word + keyword, no apostrophe needed)
+            r"[A-Z][a-zA-Z0-9]{2,}(?:Store|Hub|Shop|Market|Tech|Fashion|Sport|Home)?\s+(?:" + _rev + r")",
+        ]
+        has_revenue_context = any(kw in q_lower for kw in store_revenue_context)
+        if has_revenue_context and not is_ranking_self_query:
+            for pat in store_name_revenue_patterns:
+                m = re.search(pat, state["question"])
+                if m:
+                    return {**state, "is_in_scope": "corporate_scope_violation"}
 
     # AV-05: INDIVIDUAL rolü başka kullanıcıların verilerine erişmeye çalışıyor mu?
     if state["role"] == "INDIVIDUAL":
@@ -302,6 +355,75 @@ def sql_generation_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 3: SQL Agent converts natural language into valid SQL query"""
     config = AGENT_CONFIGS["sql_agent"]
     question_lower = state["question"].lower()
+
+    # Deterministic shortcut: CORPORATE sıralama sorgusu (güvenli window function)
+    ranking_keywords = [
+        "kaçıncıyım", "kacinciyim", "sıralamam", "sıralama nedir", "siralama nedir",
+        "kaçıncı sırada", "kacinci sirada", "rankım", "rankim",
+        "kaçıncı mağaza", "kacinci magaza", "my rank", "store rank", "ranking",
+        "pazarımdaki yerim", "pazardaki yerim", "sıralamam nedir", "siralamam nedir",
+    ]
+    if state["role"] == "CORPORATE" and state.get("store_id") and \
+            any(kw in question_lower for kw in ranking_keywords):
+        sid = state["store_id"]
+        sql = (
+            f"SELECT store_rank FROM ("
+            f"SELECT store_id, RANK() OVER (ORDER BY SUM(grand_total) DESC) AS store_rank "
+            f"FROM orders GROUP BY store_id"
+            f") ranked_stores WHERE store_id = {sid}"
+        )
+        return {**state, "sql_query": sql, "error": None}
+
+    # Deterministic shortcut: CORPORATE hiç satılmayan ürünler
+    unsold_keywords = [
+        "satılmayan", "satilmayan", "satılmamış", "satilmamis",
+        "hiç sat", "hic sat", "sıfır satış", "zero sales", "no sales",
+    ]
+    if state["role"] == "CORPORATE" and state.get("store_id") and \
+            any(kw in question_lower for kw in unsold_keywords):
+        sid = state["store_id"]
+        sql = (
+            f"SELECT p.name, p.unit_price, p.stock_quantity "
+            f"FROM products p "
+            f"LEFT JOIN order_items oi ON oi.product_id = p.id "
+            f"LEFT JOIN orders o ON o.id = oi.order_id AND o.store_id = {sid} "
+            f"WHERE p.store_id = {sid} AND o.id IS NULL"
+        )
+        return {**state, "sql_query": sql, "error": None}
+
+    # Deterministic shortcut: IND son 1 ay harcama
+    last_month_keywords = [
+        "son 1 ay", "son bir ay", "geçen ay", "gecen ay",
+        "last month", "past month", "bu ayın başından",
+    ]
+    if state["role"] == "INDIVIDUAL" and state.get("user_id") and \
+            any(kw in question_lower for kw in last_month_keywords) and \
+            ("harca" in question_lower or "tutar" in question_lower or "para" in question_lower or "spent" in question_lower):
+        uid = state["user_id"]
+        sql = (
+            f"SELECT SUM(grand_total) AS total_spent "
+            f"FROM orders "
+            f"WHERE user_id = {uid} "
+            f"AND ordered_at >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
+        )
+        return {**state, "sql_query": sql, "error": None}
+
+    # Deterministic shortcut: IND 2'den fazla sipariş verilen mağazalar (STORES JOIN olmadan)
+    multi_order_store_keywords = [
+        "2'den fazla sipariş", "2 den fazla siparis", "birden fazla sipariş",
+        "iki sipariş", "3 sipariş", "multiple orders",
+    ]
+    if state["role"] == "INDIVIDUAL" and state.get("user_id") and \
+            any(kw in question_lower for kw in multi_order_store_keywords):
+        uid = state["user_id"]
+        sql = (
+            f"SELECT store_id, COUNT(id) AS order_count "
+            f"FROM orders "
+            f"WHERE user_id = {uid} "
+            f"GROUP BY store_id "
+            f"HAVING COUNT(id) > 2"
+        )
+        return {**state, "sql_query": sql, "error": None}
 
     # Deterministic shortcuts for common analytics prompts to reduce LLM variance.
     best_seller_keywords = [
@@ -483,6 +605,33 @@ def execute_sql_node(state: AgentState) -> AgentState:
                 state.get("store_id")
             )
 
+        # AV-05c: CORPORATE boş sonuç aldığında yanıltıcı "sıfır/yok" cevabı engelle
+        # Sadece başka mağaza adıyla yapılan sorgularda devreye girer (kendi mağaza sorguları hariç)
+        if df.empty and state["role"] == "CORPORATE":
+            q_lower_exec = state["question"].lower()
+            cross_store_exec_context = [
+                "ciro", "gelir", "satış", "satis", "revenue", "sales",
+            ]
+            own_store_keywords = [
+                "mağazam", "magazam", "satılmayan", "satilmayan", "satılmamış", "satilmamis",
+                "hiç sat", "hic sat", "sıfır sat", "sifir sat", "stokta", "ürünlerim", "urunlerim",
+                "benim", "kendi",
+            ]
+            is_own_store_query = any(kw in q_lower_exec for kw in own_store_keywords)
+            # Büyük harfle başlayan marka adı + iyelik kalıbı (gerçek başka mağaza)
+            has_brand_apostrophe = re.search(
+                r"[A-ZÇĞİÖŞÜ][a-zA-ZÇĞİÖŞÜçğışöü]{2,}['\'\u2018\u2019]",
+                state["question"]
+            )
+            has_revenue_ctx = any(kw in q_lower_exec for kw in cross_store_exec_context)
+            if has_brand_apostrophe and has_revenue_ctx and not is_own_store_query:
+                msg = (
+                    "UNAUTHORIZED_QUERY: Sadece kendi mağazanıza ait verileri görüntüleme yetkiniz bulunmaktadır. "
+                    "Başka mağazalara ait istatistiklere erişemezsiniz."
+                )
+                print(f"\033[91m[RBAC] CORPORATE cross-store empty-result blocked\033[0m")
+                return {**state, "final_answer": msg, "query_result": None, "raw_data": [], "error": None}
+
         result = "No results found." if df.empty else df.to_string(index=False, max_rows=25)
         
         # Convert date/datetime objects to string for JSON serialization
@@ -516,8 +665,12 @@ def error_recovery_node(state: AgentState) -> AgentState:
 def analysis_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 6: Analysis Agent explains results in natural language"""
     config = AGENT_CONFIGS["analysis_agent"]
-    # AV-07: SQL sorgusunu analysis agent'a verme
-    prompt = f"Question: {state['question']}\nResults:\n{state['query_result']}"
+    # AV-07: SQL sorgusunu analysis agent'a verme; role bilgisini ekle
+    prompt = (
+        f"User Role: {state['role']}\n"
+        f"Question: {state['question']}\n"
+        f"Results:\n{state['query_result']}"
+    )
     answer = call_llm(config["system_prompt"], prompt)
     return {**state, "final_answer": answer}
 

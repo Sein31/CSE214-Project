@@ -56,9 +56,33 @@ def inject_condition(sql: str, condition: str) -> str:
         return sql + f" WHERE {condition}"
 
 
+def _is_secure_ranking_query(sql: str, enforced_store_id: int) -> bool:
+    """Guvenli siralama sorgusu kontrolu:
+    1) RANK()/DENSE_RANK() OVER window function iceriyor
+    2) Dis WHERE store_id = yetkili_id kilidi var
+    3) Dis SELECT hassas kolon (name/grand_total/email) sizdirilmiyor
+    """
+    sql_upper = sql.upper()
+    if not re.search(r'\b(RANK|DENSE_RANK)\s*\(\s*\)\s*OVER\b', sql_upper):
+        return False
+    if not re.search(rf'\bSTORE_ID\s*=\s*{enforced_store_id}\b', sql_upper):
+        return False
+    outer_select = re.match(r'^\s*SELECT\s+(.*?)\s+FROM\b', sql, re.IGNORECASE | re.DOTALL)
+    if outer_select:
+        cols = outer_select.group(1).lower()
+        for dangerous in ("name", "grand_total", "email", "revenue", "ciro", "first_name", "last_name"):
+            if dangerous in cols:
+                return False
+    return True
+
+
 def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
     """AV-02, AV-05: Backend seviyesinde zorunlu RBAC — tüm JOIN senaryolarını kapsar."""
     if role == "ADMIN":
+        return sql
+
+    # RANKING BYPASS: Guvenli window function siralama — ek filtre enjeksiyonu yapma
+    if role == "CORPORATE" and store_id and _is_secure_ranking_query(sql, store_id):
         return sql
 
     sql_check = sql.upper()
@@ -70,6 +94,13 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
         if not store_id:
             raise PermissionError("Bu bilgiyi paylasamam.")
         enforced_store = store_id
+
+        # AV-02b: Overwrite any attacker-supplied store_id value with the enforced one
+        sql = re.sub(
+            r'\bstore_id\s*=\s*\d+', f'store_id = {enforced_store}',
+            sql, flags=re.IGNORECASE
+        )
+        sql_check = sql.upper()  # refresh after substitution
 
         orders_present = has_table("ORDERS")
         order_items_present = has_table("ORDER_ITEMS")
