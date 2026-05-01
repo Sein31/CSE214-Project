@@ -44,14 +44,28 @@ The application is built using a microservices-inspired monolithic architecture 
 - MySQL Server 8.0+
 
 ### 1. Database Setup
-Ensure MySQL is running and create the database:
-```sql
-CREATE DATABASE aad_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
 
-Or initialize schema + minimal seed in one step:
+**Step 1 — Create schema:**
 ```bash
 mysql -u root -p < database/aad_db_init.sql
+```
+
+**Step 2 — Populate with demo data** (~2000 orders, 160 products, 1100 reviews):
+```bash
+pip install pymysql python-dotenv faker
+python database/seed_demo_data.py
+```
+
+> The script reads DB credentials from `chatbot/.env` (or project root `.env`).  
+> Required keys: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+
+Example `.env`:
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=yourpassword
+DB_NAME=aad_db
 ```
 
 ### 2. Backend (Spring Boot)
@@ -69,10 +83,12 @@ Before starting backend, set these environment variables with your own values:
 - `AI_CHATBOT_API_KEY`
 - `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (optional if using defaults)
 
-Demo seed users created by `database/aad_db_init.sql`:
-- `admin@datapulse.local`
-- `corp@datapulse.local`
-- `customer@datapulse.local`
+Demo credentials after running `seed_demo_data.py` (password: **demo1234** for all):
+| Role | Email |
+|------|-------|
+| ADMIN | `admin@datapulse.local` |
+| CORPORATE | `corp12@datapulse.local` |
+| INDIVIDUAL | `ind1@datapulse.local` |
 
 ### 3. Frontend (Angular)
 ```bash
