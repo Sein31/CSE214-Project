@@ -95,7 +95,7 @@ const SUGGESTIONS = [
                     <div *ngIf="msg.visualization.chart_type==='table'" class="chart-table-msg" style="overflow-x:auto; padding:10px;">
                       <table class="data-table" *ngIf="msg.visualization.raw_data" style="width:100%; border-collapse:collapse; font-size:12px;">
                         <thead>
-                          <tr><th *ngFor="let kv of msg.visualization.raw_data[0] | keyvalue" style="padding:8px; border:1px solid var(--border); background:rgba(0,212,170,.1); color:var(--accent); text-align:left;">{{kv.key}}</th></tr>
+                          <tr><th *ngFor="let kv of msg.visualization.raw_data[0] | keyvalue" style="padding:8px; border:1px solid var(--border); background:rgba(0,212,170,.1); color:var(--accent); text-align:left;">{{getColumnHeader(kv.key)}}</th></tr>
                         </thead>
                         <tbody>
                           <tr *ngFor="let row of msg.visualization.raw_data">
@@ -268,6 +268,74 @@ export class ChatComponent implements OnInit, AfterViewChecked {
 
   navItems: NavItem[] = [];
 
+  // Column header mapping: database column -> Turkish UI label
+  private readonly columnHeaders: { [key: string]: string } = {
+    'order_id': 'Sipariş No',
+    'grand_total': 'Toplam Tutar',
+    'ordered_at': 'Sipariş Tarihi',
+    'product_name': 'Ürün Adı',
+    'unit_price': 'Birim Fiyat',
+    'quantity': 'Adet',
+    'status': 'Durum',
+    'currency': 'Para Birimi',
+    'name': 'İsim',
+    'first_name': 'Ad',
+    'last_name': 'Soyad',
+    'email': 'E-posta',
+    'phone': 'Telefon',
+    'address': 'Adres',
+    'created_at': 'Oluşturulma Tarihi',
+    'updated_at': 'Güncellenme Tarihi',
+    'stock_quantity': 'Stok Miktarı',
+    'category_name': 'Kategori',
+    'store_name': 'Mağaza',
+    'review_count': 'Yorum Sayısı',
+    'average_rating': 'Ortalama Puan',
+    'total_spent': 'Toplam Harcama',
+    'total_items': 'Toplam Ürün',
+    'id': 'ID',
+    'description': 'Açıklama',
+    'sku': 'SKU',
+    'importance': 'Önem Derecesi',
+    'is_active': 'Aktif',
+    'city': 'Şehir',
+    'country': 'Ülke',
+    'membership_type': 'Üyelik Tipi',
+    'satisfaction_level': 'Memnuniyet Seviyesi',
+    'shipments.status': 'Kargo Durumu',
+    'orders.status': 'Sipariş Durumu',
+    'star_rating': 'Yıldız Puanı',
+    'body': 'İçerik',
+    'title': 'Başlık',
+    'payment_method': 'Ödeme Yöntemi',
+    'sales_channel': 'Satış Kanalı',
+    'fulfilment': 'Teslimat Türü',
+    'customer_care_calls': 'Müşteri Hizmeti Aramaları',
+    'customer_rating': 'Müşteri Puanı',
+    'discount_offered': 'İndirim Oranı',
+    'mode_of_shipment': 'Gönderim Modu',
+    'warehouse_block': 'Depo Bloku',
+    'tracking_number': 'Takip Numarası',
+    'carrier': 'Kargo Firması',
+    'ship_service_level': 'Gönderim Seviyesi',
+    'estimated_delivery': 'Tahmini Teslimat',
+    'actual_delivery': 'Gerçek Teslimat',
+    'cost_of_product': 'Ürün Maliyeti',
+    'prior_purchases': 'Önceki Satın Alımlar',
+    'sentiment': 'Duygu Analizi',
+    'verified': 'Doğrulanmış',
+    'marketplace': 'Pazar Yeri',
+    'helpful_votes': 'Faydalı Oylar',
+    'total_votes': 'Toplam Oy',
+    'gender': 'Cinsiyet',
+    'role_type': 'Rol',
+    'age': 'Yaş',
+    'total_spend': 'Toplam Harcama',
+    'items_purchased': 'Satın Alınan Ürün',
+    'avg_rating': 'Ortalama Puan',
+    'discount_applied': 'İndirim Uygulandı',
+  };
+
   constructor(private http: HttpClient, public auth: AuthService) {}
 
   ngOnInit() {
@@ -286,6 +354,27 @@ export class ChatComponent implements OnInit, AfterViewChecked {
   get userInitials() {
     const u=this.auth.currentUser();
     return u ? (u.firstName?.[0]||'')+(u.lastName?.[0]||'') : '?';
+  }
+
+  // Translate database column name to Turkish UI label
+  getColumnHeader(key: string | number | symbol): string {
+    const keyStr = String(key);
+    // Check exact match first
+    if (this.columnHeaders[keyStr]) {
+      return this.columnHeaders[keyStr];
+    }
+    // Check lowercase match
+    const lowerKey = keyStr.toLowerCase();
+    if (this.columnHeaders[lowerKey]) {
+      return this.columnHeaders[lowerKey];
+    }
+    // Fallback: convert snake_case to Title Case
+    return keyStr
+      .replace(/_/g, ' ')
+      .replace(/\./g, ' ')
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
   }
 
   sendSuggestion(s: string) { this.input=s; this.send(); }

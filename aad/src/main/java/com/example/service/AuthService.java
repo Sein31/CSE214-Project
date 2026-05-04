@@ -1,8 +1,10 @@
 package com.example.service;
 
 import com.example.entity.RefreshToken;
+import com.example.entity.Store;
 import com.example.entity.User;
 import com.example.repository.RefreshTokenRepository;
+import com.example.repository.StoreRepository;
 import com.example.repository.UserRepository;
 import com.example.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -21,6 +24,7 @@ public class AuthService {
 
     private final UserRepository         userRepo;
     private final RefreshTokenRepository refreshTokenRepo;
+    private final StoreRepository        storeRepo;
     private final JwtUtil                jwtUtil;
     private final PasswordEncoder        passwordEncoder;
 
@@ -55,10 +59,13 @@ public class AuthService {
         result.put("lastName",     user.getLastName());
         result.put("role",         user.getRoleType().name());
 
-        if (user.getRoleType() == User.RoleType.CORPORATE && user.getStores() != null && !user.getStores().isEmpty()) {
-            var store = user.getStores().iterator().next();
-            result.put("storeId",   store.getId());
-            result.put("storeName", store.getName());
+        if (user.getRoleType() == User.RoleType.CORPORATE) {
+            List<Store> stores = storeRepo.findByOwnerId(user.getId());
+            if (!stores.isEmpty()) {
+                Store store = stores.get(0);
+                result.put("storeId",   store.getId());
+                result.put("storeName", store.getName());
+            }
         }
         return result;
     }

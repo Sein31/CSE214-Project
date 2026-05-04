@@ -3,6 +3,7 @@ package com.example.controller;
 import com.example.entity.Review;
 import com.example.entity.Store;
 import com.example.entity.User;
+import com.example.repository.StoreRepository;
 import com.example.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +21,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReviewController {
 
-    private final ReviewService reviewService;
+    private final ReviewService   reviewService;
+    private final StoreRepository storeRepo;
 
     @PostMapping
     public ResponseEntity<?> addReview(@RequestBody Map<String, Object> body, @AuthenticationPrincipal User user) {
@@ -43,9 +45,9 @@ public class ReviewController {
     public ResponseEntity<?> getReviews(@AuthenticationPrincipal User user) {
         List<Review> reviews;
         if (user.getRoleType() == User.RoleType.CORPORATE) {
-            List<Store> stores = user.getStores();
-            if (stores == null || stores.isEmpty()) return ResponseEntity.ok(List.of());
-            reviews = reviewService.getReviewsByStore(stores.iterator().next().getId());
+            List<Store> stores = storeRepo.findByOwnerId(user.getId());
+            if (stores.isEmpty()) return ResponseEntity.ok(List.of());
+            reviews = reviewService.getReviewsByStore(stores.get(0).getId());
         } else {
             reviews = reviewService.getAllReviews();
         }

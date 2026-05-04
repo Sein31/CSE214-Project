@@ -111,7 +111,7 @@ export class CheckoutComponent implements OnInit {
   success = signal(false);
   cardError = signal('');
 
-  private readonly PUBLISHABLE_KEY = 'pk_test_51TL5pPFfeQKivCCuxxmZG2VCeucgc4t1vk6jYD7wDv7gF5mhxWiQHT2YnvLIXOaaADmK6PXjCrPZO4G7bboVi73h00GkdZXPxF';
+  private readonly PUBLISHABLE_KEY = 'pk_test_51TL5ovFdRyEWRa3gZm8iyJfX3WTIf28zsY3DKdxddOkdSSjib1EBvNgDrclfAKGbNeWj437mvHItlWWwxj278ekJ00RsKFpn7G';
 
   constructor(private http: HttpClient) {}
 
