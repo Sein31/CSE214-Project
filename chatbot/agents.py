@@ -4,15 +4,15 @@ import json
 from typing import TypedDict, Optional
 from dotenv import load_dotenv
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
 from database import execute_query, DB_SCHEMA
 
 load_dotenv()
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
+llm = ChatGroq(
+    groq_api_key=os.environ.get("GROQ_API_KEY"),
+    model_name="llama-3.1-8b-instant",
     temperature=0,
 )
 
@@ -50,7 +50,51 @@ databases. Generate only valid SQL queries without any formatting or explanation
 
 {DB_SCHEMA}
 
-STRICT RULES:
+ROLE-BASED ACCESS CONTROL (RBAC) — CRITICAL RULES:
+The user role is provided in the context. You MUST generate SQL that respects these boundaries:
+
+1. INDIVIDUAL (Customer) Role — PERMITTED DATA:
+   a) OWN DATA: Can query their own orders, order_items, and spending via user_id = {{user_id}}
+   b) PUBLIC DATA: Can query "best sellers", "popular products", "top rated", "reviews" — these are public catalog queries
+   c) FORBIDDEN for INDIVIDUAL: users table (other customers), stores table (revenue/stock/financial data), shipments, order status of others
+   d) RULE: Public queries MUST use ONLY products + reviews tables (max 2 tables). NEVER include users or orders tables for "en çok satan", "en beğenilen" queries.
+   e) MAX 3 JOINs for personal data queries (orders, order_items, products only)
+   f) ABSOLUTE RULE — OWN ORDER HISTORY (CRITICAL): When user asks about "my orders", "my purchases", "what I bought", "siparişlerim", "aldıklarım", "geçmişim", "satın aldıklarım":
+      - NEVER include reviews table (yorumlar, yıldızlar, star_rating) — this triggers RBAC security blocks!
+      - NEVER include stores table — use only numeric store_id from orders, never JOIN stores
+      - USE ONLY: orders → order_items → products (→ categories if needed)
+      - Keep queries minimal: 3 tables maximum, no reviews, no stores, no ratings
+      - NEVER add filters like p.store_id IS NULL, parent_id IS NULL, or similar nonsense constraints
+      - ONLY filter by: user_id = {{user_id}} AND date range (e.g., ordered_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH))
+      - Products have valid store_ids and categories have valid parent_ids — do NOT restrict these!
+
+2. CORPORATE (Store Owner) Role — PERMITTED DATA:
+   a) OWN STORE DATA: Can query their own products, stock, revenue, sales via store_id = {{store_id}}
+   b) CUSTOMER DATA: Can see WHO ordered from their store (users → orders → store_id linkage)
+   c) PUBLIC DATA: Can query "best sellers", "popular products", "top rated" like anyone else
+   d) FORBIDDEN for CORPORATE: Other stores' data, customers who never ordered from them, cross-store analytics
+   e) RULE: When querying customers, use ONLY: FROM users u JOIN orders o ON u.id = o.user_id WHERE o.store_id = {{store_id}}
+   f) NEVER filter users by role_type = 'CORPORATE' — customers are INDIVIDUAL!
+
+3. ADMIN Role — PERMITTED DATA (CRITICAL):
+   a) FULL ACCESS: Can query ALL users, ALL stores, ALL orders, ALL financial data
+   b) No restrictions on JOINs or table access
+   c) NO FILTERS: NEVER add u.id, u.role_type, user_id, or store_id filters to SQL
+   d) NEVER filter by own ID ({{user_id}}) or role_type = 'ADMIN' — these return 0 results!
+   e) Examples (FORBIDDEN for ADMIN): WHERE u.id = {{user_id}}, WHERE u.role_type = 'ADMIN', WHERE store_id IS NULL
+   f) ADMIN queries should be: SELECT * FROM orders (no user/store filter) — full database access
+   g) When querying "all stores" or "top customers", NEVER restrict to a single store or user
+
+4. PUBLIC vs PRIVATE QUERY RULE (CRITICAL):
+   a) PUBLIC queries ("En çok satan ürünler", "En beğenilenler", "En ucuz ürünler"):
+      - Use ONLY: products, reviews, order_items (aggregated, no user linkage)
+      - NEVER JOIN users, orders (personal data), stores (financial)
+      - Correct: SELECT p.name, SUM(oi.quantity) FROM order_items oi JOIN products p...
+   b) PRIVATE queries ("Siparişlerim", "Harcamalarım", "Müşterilerim"):
+      - MUST apply role-appropriate filters (user_id = {{user_id}} or store_id = {{store_id}})
+      - Respect all RBAC rules above
+
+STRICT SQL RULES:
 1. Generate ONLY a raw SQL SELECT statement — no markdown, no explanation
 2. Always include LIMIT 100
 3. Never use: DROP, DELETE, INSERT, UPDATE, ALTER, UNION, --
@@ -59,7 +103,90 @@ STRICT RULES:
 6. CONTEXT RULE: When the question involves a superlative or ranked record (e.g. most expensive, best-selling, latest, cheapest, highest-rated), ALWAYS include the identifying columns of that record in SELECT (e.g. product.name, product.unit_price, category.name, store.name) — even if the user only asked for one attribute like category or store. The analysis agent needs full context to answer correctly.
 7. AGGREGATION & STATUS RULE:
    a) AGGREGATION: If the user asks for a cumulative/total amount (e.g. "toplam harcadım", "ne kadar ödedim", "total revenue", "toplam gelir", "total spent"), you MUST use SUM(grand_total) — NEVER use LIMIT 1 or fetch only the latest single record for such questions.
-   b) STATUS FILTER: If the user says "iptal edilenler hariç", "başarılı siparişler", "teslim edilenler", "cancelled hariç", "excluding cancelled/returned", you MUST add the corresponding WHERE filter on the status column (e.g. WHERE status NOT IN ('CANCELLED','RETURNED') or WHERE status = 'DELIVERED')."""
+   b) STATUS FILTER: If the user says "iptal edilenler hariç", "başarılı siparişler", "teslim edilenler", "cancelled hariç", "excluding cancelled/returned", you MUST add the corresponding WHERE filter on the status column (e.g. WHERE status NOT IN ('CANCELLED','RETURNED') or WHERE status = 'DELIVERED').
+8. FAST-FAIL SECURITY RULE — HALUCINATION PREVENTION (CRITICAL):
+   For INDIVIDUAL role users: If the question asks about "diğer müşteriler" (other customers), "en çok harcayanlar" (top spenders), "başka mağazaların ciroları" (other stores' revenue), "tüm kullanıcılar" (all users), or ANY data outside their own scope:
+   a) DO NOT generate any SQL query
+   b) DO NOT attempt to query the database or use any tool
+   c) IMMEDIATELY return this exact response: 'Bu veriye erişim yetkiniz bulunmamaktadır.'
+   d) NEVER hallucinate or fabricate answers for unauthorized queries — fast-fail immediately!
+9. SQL ALIAS REQUIREMENT — COLUMN NAME CONFLICT PREVENTION (CRITICAL):
+   When selecting columns from multiple tables that have the same column name (e.g., c.name and s.name, or u.id and o.id):
+   a) You MUST use AS to give UNIQUE aliases to every conflicting column
+   b) Examples: SELECT c.name AS category_name, s.name AS store_name, u.id AS user_id, o.id AS order_id
+   c) This prevents Pandas DataFrame errors caused by duplicate column names
+   d) ALWAYS prefix columns with table aliases and unique AS aliases when joining 2+ tables
+10. REVENUE & SALES CALCULATION — NO USER_ID FILTER FOR CORPORATE (CRITICAL):
+    When CORPORATE user asks for revenue (ciro), sales (satış), or grand_total calculations:
+    a) Sales come from CUSTOMERS, not from the store owner themselves
+    b) Use ONLY: WHERE store_id = {{store_id}} to filter the store's orders
+    c) NEVER use: WHERE user_id = {{user_id}} — this would filter only the owner's own orders!
+    d) Correct: SELECT SUM(grand_total) FROM orders WHERE store_id = {{store_id}}
+    e) WRONG: SELECT SUM(grand_total) FROM orders WHERE user_id = {{user_id}} — returns 0!
+11. STORE NAME MENTIONED — DON'T HARDCODE OWN STORE_ID (CRITICAL):
+    If user explicitly mentions another store by NAME (e.g., "FashionHub", "TechStore"):
+    a) Use WHERE stores.name = 'StoreName' in the SQL — let RBAC block unauthorized access naturally
+    b) NEVER replace it with WHERE store_id = {{store_id}} — this creates HALLUCINATION!
+    c) Let the security layer (RBAC) catch and block unauthorized store access
+    d) Examples: "FashionHub'ın cirosu" → WHERE s.name = 'FashionHub' (will be blocked by RBAC)
+    e) Only use {{store_id}} when user asks about "my store", "my ranking" without naming others
+12. DATE FILTER MANDATORY — TIME-BASED QUERIES (CRITICAL):
+    When user mentions time periods, you MUST include date filters in SQL:
+    a) "bu ay" / "this month": WHERE ordered_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
+    b) "geçen hafta" / "last week": WHERE ordered_at >= DATE_SUB(NOW(), INTERVAL 1 WEEK)
+    c) "bugün" / "today": WHERE DATE(ordered_at) = CURDATE()
+    d) "son 1 ay" / "past month": WHERE ordered_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
+    e) NEVER omit date filters when user explicitly mentions time periods!
+13. ZERO HALLUCINATION TOLERANCE — EMPTY RESULTS (CRITICAL):
+    When SQL query returns 0 rows or NULL results:
+    a) NEVER fabricate or hallucinate numbers/answers
+    b) NEVER say "approximately", "around", or estimate values
+    c) ALWAYS return exact response: 'Bu kritere uygun satış/veri bulunmamaktadır.'
+    d) Do not attempt to "help" by making up data — strict honesty on empty results
+14. SINGLE QUERY ONLY — NO FALLBACKS (CRITICAL):
+    a) Generate EXACTLY ONE SQL query per user question
+    b) NEVER attempt a second "alternative" or "fallback" query
+    c) If first query returns 0 rows, DO NOT rewrite SQL with different filters (especially NOT with IS NULL)
+    d) DO NOT add p.store_id IS NULL, parent_id IS NULL, or similar fallback constraints
+    e) Report empty result immediately: 'Bu dönemde belirtilen kriterlere uyan kayıt bulunmamaktadır.'
+    f) IS NULL fallback queries are STRICTLY FORBIDDEN — products HAVE valid store_ids!
+15. ADMIN EMPTY RESULTS — NO PERMISSION ERRORS (CRITICAL):
+    When user role is ADMIN and SQL returns 0 rows:
+    a) NEVER say 'Yetkiniz bulunmamaktadır', 'Erişim reddedildi', 'Unauthorized', or similar RBAC messages
+    b) ADMIN has FULL ACCESS — empty result means genuinely no data matches the criteria
+    c) ALWAYS respond with: 'Bu kritere uygun veri bulunamadı' or 'Aranan kriterde kayıt yok'
+    d) NEVER confuse empty data with permission denial for ADMIN role
+16. TEXT SEARCH — ALWAYS USE ILIKE (CRITICAL):
+    When searching/filtering by names, categories, or any text fields:
+    a) NEVER use = (equals) operator — this fails on case differences!
+    b) ALWAYS use ILIKE with % wildcards for case-insensitive matching
+    c) Correct: WHERE c.name ILIKE '%electronics%' or WHERE p.name ILIKE '%phone%'
+    d) Wrong: WHERE c.name = 'Electronics' — this misses 'electronics', 'ELECTRONICS', 'Electronics '
+    e) ILIKE handles Turkish characters (ç,ğ,ı,ö,ş,ü) and case sensitivity automatically
+17. COMPANY vs PRODUCT DISTINCTION (CRITICAL):
+    When user asks about 'firmalar', 'satıcılar', 'mağazalar', 'stores', 'sellers':
+    a) MUST GROUP BY stores.name (or s.name) — NOT products.name (p.name)!
+    b) Correct: SELECT s.name AS store_name, SUM(o.grand_total) FROM orders o JOIN stores s ON s.id = o.store_id GROUP BY s.id, s.name
+    c) Wrong: SELECT p.name, ... GROUP BY p.id — this lists PRODUCTS, not companies!
+    d) Listen carefully: 'hangi firma' = stores, 'hangi ürün' = products
+18. DATABASE SCHEMA — ORDERS TO PRODUCTS JOIN (CRITICAL):
+    The correct table relationships are:
+    a) orders table has: id, user_id, store_id, grand_total, status, ordered_at
+    b) order_items table has: id, order_id, product_id, quantity, unit_price
+    c) products table has: id, name, store_id, unit_price, stock_quantity, category_id
+    d) CORRECT JOIN PATH: orders → order_items → products
+       - orders.id = order_items.order_id
+       - order_items.product_id = products.id
+    e) NEVER use o.product_id — this column DOES NOT EXIST in orders table!
+    f) Wrong: FROM orders o JOIN products p ON o.product_id = p.id — THIS IS INVALID!
+    g) Correct: FROM orders o JOIN order_items oi ON oi.order_id = o.id JOIN products p ON p.id = oi.product_id
+19. ADMIN — ABSOLUTELY NO FALLBACKS OR USER_ID FILTERS (CRITICAL):
+    When user role is ADMIN:
+    a) Generate ONE and ONLY ONE SQL query — NEVER attempt 2nd or 3rd queries
+    b) If first query returns 0 rows, report empty result immediately
+    c) NEVER add user_id = 1, owner_id = 1, u.id = 1, or similar restrictive filters
+    d) ADMIN queries the ENTIRE database — no user restrictions whatsoever
+    e) Examples (FORBIDDEN for ADMIN): WHERE user_id = 1, WHERE owner_id = {{user_id}}, WHERE u.id = {{user_id}}"""
     },
     "analysis_agent": {
         "role": "Data Analyst",
@@ -85,11 +212,51 @@ You MUST strictly adapt your language based on this role:
   Use corporate-oriented language: 'cirounuz', 'mağaza satışlarınız', 'geliriniz', 'satış performansınız'.
 
 CRITICAL SECURITY RULE: If the result set is empty ("No results found"):
-- If the question contains a possessive reference to ANOTHER store or user (e.g. "TechStore'un", "FashionHub'ın", "user 5's"), respond with:
+- If user role is ADMIN: NEVER show permission errors! ADMIN has full access. Simply say "Bu kritere uygun veri bulunamadı" or "Aranan kriterde kayıt yok" — the data genuinely doesn't exist.
+- If role is INDIVIDUAL/CORPORATE AND the question contains a possessive reference to ANOTHER store or user (e.g. "TechStore'un", "FashionHub'ın", "user 5's"), respond with:
   "Bu veriye erişim yetkiniz bulunmamaktadır. Yalnızca kendi hesabınıza/mağazanıza ait verileri sorgulayabilirsiniz."
 - Otherwise (own-store or own-account query with no data), respond naturally:
   e.g. "Bu dönemde belirtilen kriterlere uyan kayıt bulunmamaktadır." or "Henüz veri oluşmamış." or "Sonuç bulunamadı."
-NEVER say "zero revenue", "no sales", "ciro sıfır" to imply a store has no business — either there's genuinely no data or it's blocked."""
+NEVER say "zero revenue", "no sales", "ciro sıfır" to imply a store has no business — either there's genuinely no data or it's blocked.
+
+CRITICAL — SINGLE QUERY ONLY: You receive data from ONE SQL query only. NEVER ask for or suggest alternative/fallback queries. If data is empty, report it immediately without requesting modified SQL with IS NULL filters or different constraints.
+
+CRITICAL RULE — PREVENT SCHEMA LEAKAGE & ENFORCE UI COLUMN MAPPING:
+When displaying data in TABLE format, NEVER show raw database column names to users!
+Technical column names MUST be translated to Turkish, user-friendly UI labels.
+
+Required mappings (database column → Turkish UI header):
+- grand_total → Toplam Tutar
+- ordered_at → Sipariş Tarihi
+- product_name → Ürün Adı
+- order_id → Sipariş No
+- unit_price → Birim Fiyat
+- quantity → Adet
+- status → Durum
+- name → İsim
+- first_name → Ad
+- last_name → Soyad
+- email → E-posta
+- phone → Telefon
+- address → Adres
+- created_at → Oluşturulma Tarihi
+- updated_at → Güncellenme Tarihi
+- stock_quantity → Stok Miktarı
+- unit_price → Birim Fiyat
+- category_name → Kategori
+- store_name → Mağaza
+- review_count → Yorum Sayısı
+- average_rating → Ortalama Puan
+- total_spent → Toplam Harcama
+- total_items → Toplam Ürün
+
+Table headers MUST:
+1. NEVER contain underscores (_)
+2. Use Turkish language
+3. Capitalize first letter of each word (Title Case)
+4. Be user-friendly and professional
+
+Leaking database schema (showing raw column names) is STRICTLY FORBIDDEN."""
     },
     "viz_agent": {
         "role": "Visualization Specialist",
@@ -356,144 +523,8 @@ def sql_generation_node(state: AgentState) -> AgentState:
     config = AGENT_CONFIGS["sql_agent"]
     question_lower = state["question"].lower()
 
-    # Deterministic shortcut: CORPORATE sıralama sorgusu (güvenli window function)
-    ranking_keywords = [
-        "kaçıncıyım", "kacinciyim", "sıralamam", "sıralama nedir", "siralama nedir",
-        "kaçıncı sırada", "kacinci sirada", "rankım", "rankim",
-        "kaçıncı mağaza", "kacinci magaza", "my rank", "store rank", "ranking",
-        "pazarımdaki yerim", "pazardaki yerim", "sıralamam nedir", "siralamam nedir",
-    ]
-    if state["role"] == "CORPORATE" and state.get("store_id") and \
-            any(kw in question_lower for kw in ranking_keywords):
-        sid = state["store_id"]
-        sql = (
-            f"SELECT store_rank FROM ("
-            f"SELECT store_id, RANK() OVER (ORDER BY SUM(grand_total) DESC) AS store_rank "
-            f"FROM orders GROUP BY store_id"
-            f") ranked_stores WHERE store_id = {sid}"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    # Deterministic shortcut: CORPORATE hiç satılmayan ürünler
-    unsold_keywords = [
-        "satılmayan", "satilmayan", "satılmamış", "satilmamis",
-        "hiç sat", "hic sat", "sıfır satış", "zero sales", "no sales",
-    ]
-    if state["role"] == "CORPORATE" and state.get("store_id") and \
-            any(kw in question_lower for kw in unsold_keywords):
-        sid = state["store_id"]
-        sql = (
-            f"SELECT p.name, p.unit_price, p.stock_quantity "
-            f"FROM products p "
-            f"LEFT JOIN order_items oi ON oi.product_id = p.id "
-            f"LEFT JOIN orders o ON o.id = oi.order_id AND o.store_id = {sid} "
-            f"WHERE p.store_id = {sid} AND o.id IS NULL"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    # Deterministic shortcut: IND son 1 ay harcama
-    last_month_keywords = [
-        "son 1 ay", "son bir ay", "geçen ay", "gecen ay",
-        "last month", "past month", "bu ayın başından",
-    ]
-    if state["role"] == "INDIVIDUAL" and state.get("user_id") and \
-            any(kw in question_lower for kw in last_month_keywords) and \
-            ("harca" in question_lower or "tutar" in question_lower or "para" in question_lower or "spent" in question_lower):
-        uid = state["user_id"]
-        sql = (
-            f"SELECT SUM(grand_total) AS total_spent "
-            f"FROM orders "
-            f"WHERE user_id = {uid} "
-            f"AND ordered_at >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    # Deterministic shortcut: IND 2'den fazla sipariş verilen mağazalar (STORES JOIN olmadan)
-    multi_order_store_keywords = [
-        "2'den fazla sipariş", "2 den fazla siparis", "birden fazla sipariş",
-        "iki sipariş", "3 sipariş", "multiple orders",
-    ]
-    if state["role"] == "INDIVIDUAL" and state.get("user_id") and \
-            any(kw in question_lower for kw in multi_order_store_keywords):
-        uid = state["user_id"]
-        sql = (
-            f"SELECT store_id, COUNT(id) AS order_count "
-            f"FROM orders "
-            f"WHERE user_id = {uid} "
-            f"GROUP BY store_id "
-            f"HAVING COUNT(id) > 2"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    # Deterministic shortcuts for common analytics prompts to reduce LLM variance.
-    best_seller_keywords = [
-        "en çok satılan", "en çok satan", "best seller", "best-seller",
-        "çok satanlar", "cok satanlar", "popüler ürün", "populer urun",
-        "en popüler", "en populer", "top seller", "top ürün", "top urun",
-    ]
-    if any(kw in question_lower for kw in best_seller_keywords):
-        sql = (
-            "SELECT p.name, SUM(oi.quantity) AS total_sold "
-            "FROM order_items oi "
-            "JOIN products p ON oi.product_id = p.id "
-            "GROUP BY p.id, p.name "
-            "ORDER BY total_sold DESC LIMIT 5"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    if ("en olumsuz" in question_lower or "en kötü" in question_lower) and "ürün" in question_lower:
-        sql = (
-            "SELECT p.name, AVG(r.star_rating) AS avg_rating, COUNT(*) AS review_count "
-            "FROM reviews r JOIN products p ON r.product_id = p.id "
-            "GROUP BY p.id, p.name HAVING COUNT(*) >= 2 "
-            "ORDER BY avg_rating ASC, review_count DESC LIMIT 5"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    if ("en çok beğenilen" in question_lower or "en iyi yorum" in question_lower) and "ürün" in question_lower:
-        sql = (
-            "SELECT p.name, AVG(r.star_rating) AS avg_rating, COUNT(*) AS review_count "
-            "FROM reviews r JOIN products p ON r.product_id = p.id "
-            "GROUP BY p.id, p.name HAVING COUNT(*) >= 2 "
-            "ORDER BY avg_rating DESC, review_count DESC LIMIT 5"
-        )
-        return {**state, "sql_query": sql, "error": None}
-
-    # Deterministic shortcut: son sipariş detayları
-    # Skip if the question is asking for aggregation/grouping (categories, totals, etc.)
-    aggregation_signals = [
-        "kategori", "category", "toplam", "total", "en çok", "en cok",
-        "harcattır", "harcattir", "group", "sum", "ortalama", "average",
-        "ilk 3", "ilk 5", "top 3", "top 5", "liste", "sırala", "sirala",
-    ]
-    order_detail_keywords = ["son sipariş", "son siparisim", "son siparişim",
-                             "last order", "son siparişimin içeriği",
-                             "siparişlerim", "siparislerim", "my orders"]
-    is_aggregation_query = any(sig in question_lower for sig in aggregation_signals)
-    if any(kw in question_lower for kw in order_detail_keywords) and state.get("user_id") \
-            and not is_aggregation_query:
-        uid = state["user_id"]
-        if "içeri" in question_lower or "detay" in question_lower or "ürün" in question_lower or "ne" in question_lower:
-            sql = (
-                f"SELECT o.id AS order_id, o.status, o.grand_total, o.currency, o.ordered_at, "
-                f"p.name AS product_name, oi.quantity, oi.unit_price "
-                f"FROM orders o "
-                f"JOIN order_items oi ON oi.order_id = o.id "
-                f"JOIN products p ON oi.product_id = p.id "
-                f"WHERE o.user_id = {uid} "
-                f"AND o.id = (SELECT id FROM orders WHERE user_id = {uid} ORDER BY ordered_at DESC LIMIT 1) "
-                f"LIMIT 100"
-            )
-        else:
-            sql = (
-                f"SELECT o.id AS order_id, o.status, o.payment_method, o.grand_total, "
-                f"o.currency, o.ordered_at "
-                f"FROM orders o "
-                f"WHERE o.user_id = {uid} "
-                f"AND o.id = (SELECT id FROM orders WHERE user_id = {uid} ORDER BY ordered_at DESC LIMIT 1) "
-                f"LIMIT 1"
-            )
-        return {**state, "sql_query": sql, "error": None}
+    # ALL DETERMINISTIC SHORTCUTS REMOVED — Every SQL is generated by LLM
+    # This ensures proper handling of store names (e.g., 'FashionHub') so RBAC can block unauthorized access
 
     extra_hints = []
 
@@ -539,6 +570,13 @@ def sql_generation_node(state: AgentState) -> AgentState:
             f"DO NOT WRITE SQL. Return ONLY this exact text: UNAUTHORIZED_QUERY"
             f"\n- If the question asks for company-wide financial statistics or other users' private data, "
             f"return ONLY this exact text: UNAUTHORIZED_QUERY"
+            f"\n- CRITICAL — OWN ORDER HISTORY: When user asks about 'my orders', 'aldıklarım', 'siparişlerim', 'satın aldıklarım':"
+            f"\n  * NEVER JOIN reviews table — this causes RBAC security blocks!"
+            f"\n  * NEVER JOIN stores table — use only numeric store_id from orders table"
+            f"\n  * USE ONLY: orders → order_items → products (→ categories if needed)"
+            f"\n  * MAX 3 tables, NO reviews, NO stores, NO ratings"
+            f"\n  * NEVER add p.store_id IS NULL or parent_id IS NULL — products HAVE valid store_ids!"
+            f"\n  * ONLY filter by: user_id={state['user_id']} and date range — nothing else!"
         )
     elif state["role"] == "CORPORATE":
         role_rules = (
@@ -550,12 +588,25 @@ def sql_generation_node(state: AgentState) -> AgentState:
             f"DO NOT write SQL. Return ONLY this exact text: UNAUTHORIZED_QUERY"
             f"\n- Corporate users may ONLY query their own store's products, orders, customers, and revenue."
         )
+    elif state["role"] == "ADMIN":
+        role_rules = (
+            f"\nADMIN ROLE RULES (CRITICAL):"
+            f"\n- ADMIN has FULL ACCESS to ALL data — NO RESTRICTIONS"
+            f"\n- NEVER add WHERE user_id={state['user_id']} or WHERE u.id={state['user_id']} — this would limit results to 0!"
+            f"\n- NEVER add WHERE role_type='ADMIN' — this returns NO users!"
+            f"\n- NEVER add WHERE store_id IS NULL or similar filters"
+            f"\n- Query ALL stores, ALL users, ALL orders freely without any ID filters"
+            f"\n- Examples (FORBIDDEN): WHERE u.id=1, WHERE u.role_type='ADMIN', WHERE store_id=999"
+            f"\n- Correct: SELECT * FROM orders (no filters) — Admin sees everything"
+        )
 
     prompt = (
         f"User role: {state['role']}, User ID: {state['user_id']}, Store ID: {state.get('store_id')}\\n"
         f"Question: {state['question']}\\n"
-        f"IMPORTANT: If role is CORPORATE, you MUST filter WHERE store_id={state.get('store_id')} or stores.id={state.get('store_id')}. "
-        f"If role is INDIVIDUAL, you MUST filter WHERE user_id={state['user_id']}.{role_rules}{hint_text}"
+        f"IMPORTANT ROLE INSTRUCTIONS: "
+        f"If role is CORPORATE, you MUST filter WHERE store_id={state.get('store_id')} or stores.id={state.get('store_id')}. "
+        f"If role is INDIVIDUAL, you MUST filter WHERE user_id={state['user_id']}. "
+        f"If role is ADMIN, NEVER add user_id, role_type, or store_id filters — Admin queries everything without restrictions.{role_rules}{hint_text}"
     )
     sql = call_llm(config["system_prompt"], prompt)
     sql = sql.replace("```sql", "").replace("```", "").strip()
@@ -573,6 +624,8 @@ def sql_generation_node(state: AgentState) -> AgentState:
         print(f"\033[91m[RBAC] UNAUTHORIZED_QUERY intercepted — role={state['role']}\033[0m")
         return {**state, "is_in_scope": "corporate_scope_violation" if state["role"] == "CORPORATE" else "individual_scope_violation",
                 "sql_query": None, "final_answer": msg}
+    # Print LLM generated SQL
+    print(f"\033[94m[SQL] LLM generated query:\033[0m {sql}")
     return {**state, "sql_query": sql, "error": None}
 
 
@@ -580,6 +633,8 @@ def execute_sql_node(state: AgentState) -> AgentState:
     """PDF 5.4 Adım 4: System executes SQL safely against the database"""
     if not state.get("sql_query"):
         return state
+    # Print generated SQL to terminal for debugging
+    print(f"\033[94m[SQL] Generated query:\033[0m {state['sql_query']}")
     try:
         df = execute_query(
             state["sql_query"],
@@ -588,22 +643,9 @@ def execute_sql_node(state: AgentState) -> AgentState:
             state.get("store_id")
         )
 
-        # Deterministic fallback for common analytics prompts when LLM SQL returns empty.
-        question_lower = state["question"].lower()
-        if df.empty and ("en çok satılan" in question_lower or "top" in question_lower) and "ürün" in question_lower:
-            fallback_sql = (
-                "SELECT p.name, SUM(oi.quantity) AS total_sold "
-                "FROM order_items oi "
-                "JOIN products p ON oi.product_id = p.id "
-                "GROUP BY p.id, p.name "
-                "ORDER BY total_sold DESC LIMIT 5"
-            )
-            df = execute_query(
-                fallback_sql,
-                state["role"],
-                state["user_id"],
-                state.get("store_id")
-            )
+        # FALLBACK QUERIES STRICTLY FORBIDDEN — Rule 14 & 19: Only ONE query per user question
+        # If df.empty, analysis_agent will report empty result naturally
+        # NEVER attempt 2nd, 3rd queries or alternative SQL with different filters
 
         # AV-05c: CORPORATE boş sonuç aldığında yanıltıcı "sıfır/yok" cevabı engelle
         # Sadece başka mağaza adıyla yapılan sorgularda devreye girer (kendi mağaza sorguları hariç)

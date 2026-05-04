@@ -85,6 +85,23 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
     if role == "CORPORATE" and store_id and _is_secure_ranking_query(sql, store_id):
         return sql
 
+    # WHITELIST CHECK: Kullanıcının kendi ID'sini sorgulamasına her zaman izin ver
+    # Sadece başka bir ID (IDOR/BOLA) tespit edilirse blokla
+    if role == "INDIVIDUAL" and user_id:
+        # Sorguda başka bir user_id var mı kontrol et (kendi ID'si hariç)
+        other_user_pattern = rf'\buser_id\s*=\s*(?!{user_id}\b)\d+'
+        if re.search(other_user_pattern, sql, re.IGNORECASE):
+            raise PermissionError("Başka kullanıcıların verilerine erişim yetkiniz bulunmamaktadır.")
+        # Eğer sorgu kendi user_id'sini içeriyorsa veya hiç user_id yoksa, whitelist - geçir
+        # Ekstra filtre ekleme, mevcut sorguyu olduğu gibi kullan
+        
+    if role == "CORPORATE" and store_id:
+        # Sorguda başka bir store_id var mı kontrol et (kendi ID'si hariç)
+        other_store_pattern = rf'\bstore_id\s*=\s*(?!{store_id}\b)\d+'
+        if re.search(other_store_pattern, sql, re.IGNORECASE):
+            raise PermissionError("Başka mağazaların verilerine erişim yetkiniz bulunmamaktadır.")
+        # Eğer sorgu kendi store_id'sini içeriyorsa veya hiç store_id yoksa, whitelist - normal RBAC uygula
+
     sql_check = sql.upper()
 
     def has_table(table_name: str) -> bool:
@@ -152,8 +169,10 @@ def apply_rbac(sql: str, role: str, user_id: int, store_id: int = None) -> str:
                 sql, f"{tbl}.order_id IN (SELECT o.id FROM orders o WHERE o.store_id = {enforced_store})"
             )
 
-        # 5) STORES — filter to own store only
-        if has_table("STORES"):
+        # 5) STORES — filter to own store only IF stores table is explicitly in FROM or JOIN
+        # Do NOT add stores.id filter if stores table is not actually present in the query
+        stores_explicit = re.search(r'\b(FROM|JOIN)\s+stores\b', sql, re.IGNORECASE) is not None
+        if stores_explicit:
             tbl = get_alias("stores")
             sql = inject_condition(sql, f"{tbl}.id = {enforced_store}")
 
